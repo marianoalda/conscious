@@ -7,7 +7,6 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 We will start by enumarating some elements that we will need:
 - An open, modular and distributed architecture:
     - e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
-    - 
 - Time engine
     - which allows the world and beings (and other ones) engines to exist synchronizedly.
     - able to be suspended for debug, accelerated, slowed down, etc.
