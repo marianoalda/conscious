@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c11
+CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L
 
 TARGET = build/conscious
 SOURCES = $(wildcard src/*.c)
