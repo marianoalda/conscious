@@ -8,7 +8,7 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 
 ## Requirements and architecture brainstorm
 
-We will start by enumarating some elements that we will need:
+We will start by enumerating some elements that we will need:
 - An open, modular and distributed architecture:
     - e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Time engine
