@@ -45,5 +45,6 @@ We will start by enumarating some elements that we will need:
 
 ## References
 
+- [Project in Github](https://github.com/marianoalda/conscious)
 - [ChatGPT conversation including implementation and ethics](https://chatgpt.com/share/6aaab1ce-9c64-83ed-971f-411bacf42cb4)
 - [Gemini conversation including the own basic theory about artificial consciousness](https://share.gemini.google/azB9mMfjqQD8)
