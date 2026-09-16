@@ -5,7 +5,9 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 ## Requirements and architecture brainstorm
 
 We will start by enumarating some elements that we will need:
-- An open, modular and distributed architecture: e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
+- An open, modular and distributed architecture:
+    - e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
+    - 
 - Time engine
     - which allows the world and beings (and other ones) engines to exist synchronizedly.
     - able to be suspended for debug, accelerated, slowed down, etc.
@@ -26,6 +28,20 @@ We will start by enumarating some elements that we will need:
 - Some kind of snapshot feature of the different repositories/engines
     - For backup/restore, debug, make reports, be inspected by humans...
     - That can be used by external tools to "translate to human language" what happens in the world and inside the beings (evolution, "thoughts", analysis of protolanguage...)
+- World console or "control panel": Inspection/interpretation framework:
+    - Allows for suspending, explaining, explain changes between snaps, translating the world, beings, etc.
+    - Real time (graphical or textual to feed IA agents) representation of the state of the world, beings, etc.
+- Debugging capabilities:
+    - Compatible with the distributed and possible heterogeneous paradigm (C, Java, Smalltalk...)
+- Maintaing compatibility by abstraction and layers/interfaces/endpoints
+
+## Requirements backlog
+
+- How to automate build and execution
+- Graphical representation: world console or "control panel"
+- How to deal with different versions and compatibility amoung engines:
+    - Versions, tags, releases, documenting compatibility and features, requirements...
+- Setup and understanding of the Github issues subsystem.
 
 ## References
 
