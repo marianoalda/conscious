@@ -2,6 +2,10 @@
 
 This is the Conscious Project, a try to investigate if artificial consciousness can arise from proprioception, i.e., integration by a being of a model of itself (and the world itself) in the system that the being uses to interact with its world.
 
+## Modules
+
+- [Time engine](modules/time-engine/README.md)
+
 ## Requirements and architecture brainstorm
 
 We will start by enumarating some elements that we will need:
