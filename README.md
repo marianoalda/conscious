@@ -4,7 +4,7 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 
 ## Modules
 
-- [Time engine](modules/time-engine/README.md)
+- [conscious (main module and time sync)](modules/conscious/README.md)
 
 ## Requirements and architecture brainstorm
 
