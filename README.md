@@ -2,6 +2,8 @@
 
 This is the Conscious Project, a try to investigate if artificial consciousness can arise from proprioception, i.e., integration by a being of a model of itself (and the world itself) in the way that the being interacts with its world.
 
+## Requirements and architecture brainstorm
+
 We will start by enumarating some elements that we will need:
 - An open, modular and distributed architecture: e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Time engine
@@ -24,3 +26,8 @@ We will start by enumarating some elements that we will need:
 - Some kind of snapshot feature of the different repositories/engines
     - For backup/restore, debug, make reports, be inspected by humans...
     - That can be used by external tools to "translate to human language" what happens in the world and inside the beings (evolution, "thoughts", analysis of protolanguage...)
+
+## References
+
+- [ChatGPT conversation including implementation and ethics](https://chatgpt.com/share/6aaab1ce-9c64-83ed-971f-411bacf42cb4)
+- [Gemini conversation including the own basic theory about artificial consciousness](https://share.gemini.google/azB9mMfjqQD8)
