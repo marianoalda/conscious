@@ -12,8 +12,8 @@ typedef enum {
 typedef struct {
     bool save_state_on_shutdown;
     state_on_start_t state_on_start;
-} configuration_t;
+    char world_file[PATH_MAX];
 
-int parse_configuration(FILE *config_file, configuration_t *configuration);
+} configuration_t;
 
 #endif

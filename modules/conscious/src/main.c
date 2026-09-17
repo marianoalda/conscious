@@ -8,6 +8,7 @@
 #include <ctype.h>
 
 #include "configuration.h"
+#include "world.h"
 
 typedef struct {
     int verbose;
@@ -72,7 +73,7 @@ static int parse_arguments(int argc, char **argv, options_t *options)
 /************************************
  * Parse configuration file
  */
-int parse_configuration(FILE *config_file, configuration_t *configuration)
+static int parse_configuration(FILE *config_file, configuration_t *configuration)
 {
     char line[1024];
     unsigned int line_number = 0;
@@ -175,6 +176,16 @@ int parse_configuration(FILE *config_file, configuration_t *configuration)
             }
         }
 
+        else if (strcmp(variable, "world_file") == 0) {
+            if (strlen(value) >= sizeof(configuration->world_file)) {
+                fprintf(stderr,
+                    "Error: Value for '%s' at line %u is too long.\n",
+                    variable, line_number);
+                return -1;
+            }
+            strcpy(configuration->world_file, value);
+        }
+
         else {
             fprintf(stderr,
                     "Error: Unknown configuration parameter at line %u: '%s'.\n",
@@ -185,6 +196,41 @@ int parse_configuration(FILE *config_file, configuration_t *configuration)
 
     if (ferror(config_file)) {
         fprintf(stderr, "Error: Error reading configuration file.\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+/************************************
+ * Get absolute world file path
+ */
+static int get_absolute_world_path(
+    const char *executable_dir,
+    const char *configured_path,
+    char *absolute_path,
+    size_t size)
+{
+    int length;
+
+    if (configured_path[0] == '/') {
+        length = snprintf(
+            absolute_path,
+            size,
+            "%s",
+            configured_path);
+    }
+    else {
+        length = snprintf(
+            absolute_path,
+            size,
+            "%s/%s",
+            executable_dir,
+            configured_path);
+    }
+
+    if (length < 0 || (size_t)length >= size) {
+        fprintf(stderr, "Error: World file path is too long.\n");
         return -1;
     }
 
@@ -229,11 +275,13 @@ int main(int argc, char **argv)
 
     configuration_t configuration = {
         .save_state_on_shutdown = true,
-        .state_on_start = SIMULATE
+        .state_on_start = SIMULATE,
+        .world_file = "world.bin"
     };
 
     char executable_dir[PATH_MAX];
     char default_config[PATH_MAX];
+    char absolute_world_path[PATH_MAX];
 
     FILE *config_file = NULL;
 
@@ -243,18 +291,21 @@ int main(int argc, char **argv)
     }
 
     /*
-     * Use conscious.cfg from the executable directory
-     * when no configuration file was specified.
-     */
+    * Get executable directory.
+    */
+    if (get_executable_directory(
+            executable_dir,
+            sizeof(executable_dir)) != 0) {
+
+        fprintf(stderr, "Unable to determine executable directory.\n");
+        return EXIT_FAILURE;
+    }
+
+    /*
+    * Use conscious.cfg from the executable directory
+    * when no configuration file was specified.
+    */
     if (options.config_file == NULL) {
-        if (get_executable_directory(
-                executable_dir,
-                sizeof(executable_dir)) != 0) {
-
-            fprintf(stderr, "Unable to determine executable directory.\n");
-            return EXIT_FAILURE;
-        }
-
         if (snprintf(
                 default_config,
                 sizeof(default_config),
@@ -267,7 +318,6 @@ int main(int argc, char **argv)
 
         options.config_file = default_config;
     }
-
     /* initialization */
     printf("Conscious Project - Main and Sync module.\n");
 
@@ -297,6 +347,49 @@ int main(int argc, char **argv)
     }
 
     fclose(config_file);
+
+    /*
+     * Resolve world file path.
+     */
+    if (get_absolute_world_path(
+            executable_dir,
+            configuration.world_file,
+            absolute_world_path,
+            sizeof(absolute_world_path)) != 0) {
+
+        return EXIT_FAILURE;
+    }
+
+    if (options.verbose) {
+        printf("World: %s\n", absolute_world_path);
+    }
+
+    /*
+     * Load world.
+     */
+    if (options.verbose) {
+        printf("Loading world: %s\n", absolute_world_path);
+    }
+
+    if (world_load(absolute_world_path) != 0) {
+        fprintf(stderr, "Error: Unable to load world %s.\n", absolute_world_path);
+        return EXIT_FAILURE;
+    }
+
+    /*************************
+     * Main loop here
+     *************************/
+
+    if (configuration.save_state_on_shutdown) {
+        if (options.verbose) {
+            printf("Saving world: %s\n", absolute_world_path);
+        }
+
+        if (world_save(absolute_world_path) != 0) {
+            fprintf(stderr, "Error: Unable to save world %s.\n", absolute_world_path);
+            return EXIT_FAILURE;
+        }
+    }
 
     /* Exit */
     printf("Exiting.\n");
