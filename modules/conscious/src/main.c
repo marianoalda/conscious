@@ -4,6 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <ctype.h>
+
+#include "configuration.h"
 
 typedef struct {
     int verbose;
@@ -11,6 +15,9 @@ typedef struct {
     const char *name;
 } options_t;
 
+/************************************
+ * Print help
+ */
 static void print_help(const char *program)
 {
     printf("Usage: %s [OPTIONS]\n\n", program);
@@ -21,6 +28,9 @@ static void print_help(const char *program)
     printf("  -n, --name NAME         Node/process name\n");
 }
 
+/************************************
+ * Parse command-line arguments
+ */
 static int parse_arguments(int argc, char **argv, options_t *options)
 {
     static const struct option long_options[] = {
@@ -59,6 +69,131 @@ static int parse_arguments(int argc, char **argv, options_t *options)
     return 0;
 }
 
+/************************************
+ * Parse configuration file
+ */
+int parse_configuration(FILE *config_file, configuration_t *configuration)
+{
+    char line[1024];
+    unsigned int line_number = 0;
+
+    while (fgets(line, sizeof(line), config_file) != NULL) {
+        char *variable;
+        char *value;
+        char *separator;
+        char *end;
+
+        line_number++;
+
+        /* Remove trailing newline */
+        line[strcspn(line, "\r\n")] = '\0';
+
+        /* Skip leading whitespace */
+        variable = line;
+        while (isspace((unsigned char)*variable))
+            variable++;
+
+        /* Ignore empty lines and comments */
+        if (*variable == '\0' || *variable == '#')
+            continue;
+
+        /* Find '=' */
+        separator = strchr(variable, '=');
+        if (separator == NULL) {
+            fprintf(stderr,
+                    "Error: Invalid configuration at line %u: expected 'variable = value'.\n",
+                    line_number);
+            return -1;
+        }
+
+        /* Split variable and value */
+        *separator = '\0';
+        value = separator + 1;
+
+        /* Remove trailing whitespace from variable */
+        end = separator - 1;
+        while (end >= variable && isspace((unsigned char)*end)) {
+            *end = '\0';
+            end--;
+        }
+
+        /* Skip leading whitespace from value */
+        while (isspace((unsigned char)*value))
+            value++;
+
+        /* Remove trailing whitespace from value */
+        end = value + strlen(value) - 1;
+        while (end >= value && isspace((unsigned char)*end)) {
+            *end = '\0';
+            end--;
+        }
+
+        if (*variable == '\0' || *value == '\0') {
+            fprintf(stderr,
+                    "Error: Invalid configuration at line %u.\n",
+                    line_number);
+            return -1;
+        }
+
+        /*
+         * save_state_on_shutdown = true|false
+         */
+        if (strcmp(variable, "save_state_on_shutdown") == 0) {
+
+            if (strcmp(value, "true") == 0) {
+                configuration->save_state_on_shutdown = true;
+            }
+            else if (strcmp(value, "false") == 0) {
+                configuration->save_state_on_shutdown = false;
+            }
+            else {
+                fprintf(stderr,
+                        "Error: Invalid value for '%s' at line %u: '%s'. "
+                        "Expected true or false.\n",
+                        variable, line_number, value);
+                return -1;
+            }
+        }
+
+        /*
+         * state_on_start = SIMULATE|HOLD
+         */
+        else if (strcmp(variable, "state_on_start") == 0) {
+
+            if (strcmp(value, "SIMULATE") == 0) {
+                configuration->state_on_start = SIMULATE;
+            }
+            else if (strcmp(value, "HOLD") == 0) {
+                configuration->state_on_start = HOLD;
+            }
+            else {
+                fprintf(stderr,
+                        "Error: Invalid value for '%s' at line %u: '%s'. "
+                        "Expected SIMULATE or HOLD.\n",
+                        variable, line_number, value);
+                return -1;
+            }
+        }
+
+        else {
+            fprintf(stderr,
+                    "Error: Unknown configuration parameter at line %u: '%s'.\n",
+                    line_number, variable);
+            return -1;
+        }
+    }
+
+    if (ferror(config_file)) {
+        fprintf(stderr, "Error: Error reading configuration file.\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+/************************************
+ * Get executable directory
+ */
 static int get_executable_directory(char *buffer, size_t size)
 {
     ssize_t length;
@@ -81,6 +216,9 @@ static int get_executable_directory(char *buffer, size_t size)
     return 0;
 }
 
+/************************************
+ * Main function
+ */
 int main(int argc, char **argv)
 {
     options_t options = {
@@ -89,8 +227,15 @@ int main(int argc, char **argv)
         .name = NULL
     };
 
+    configuration_t configuration = {
+        .save_state_on_shutdown = true,
+        .state_on_start = SIMULATE
+    };
+
     char executable_dir[PATH_MAX];
     char default_config[PATH_MAX];
+
+    FILE *config_file = NULL;
 
     if (parse_arguments(argc, argv, &options) != 0) {
         fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
@@ -126,9 +271,32 @@ int main(int argc, char **argv)
     /* initialization */
     printf("Conscious Project - Main and Sync module.\n");
 
-    printf("Configuration: %s\n", options.config_file);
-
     /* Main logic here */
+    printf("Initializing...\n");
+
+    /* print configuration file only if verbose */
+    if (options.verbose) {
+        printf("Configuration: %s\n", options.config_file);
+    }
+
+    config_file = fopen(options.config_file, "r");
+    if (config_file == NULL) {
+        fprintf(stderr,
+                "Error: Unable to open configuration file '%s'.\n",
+                options.config_file);
+        return EXIT_FAILURE;
+    }
+
+    /*
+     * Parse configuration file and assign values to the
+     * configuration structure.
+     */
+    if (parse_configuration(config_file, &configuration) != 0) {
+        fclose(config_file);
+        return EXIT_FAILURE;
+    }
+
+    fclose(config_file);
 
     /* Exit */
     printf("Exiting.\n");
