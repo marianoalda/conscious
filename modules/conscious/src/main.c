@@ -540,7 +540,7 @@ int main(int argc, char **argv)
             printf("Saving world: %s\n", absolute_world_path);
         }
 
-        if (world_save(absolute_world_path) != 0) {
+        if (world_serialize(absolute_world_path) != 0) {
             fprintf(stderr, "Error: Unable to save world %s.\n", absolute_world_path);
             return EXIT_FAILURE;
         }

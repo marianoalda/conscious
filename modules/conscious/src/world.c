@@ -20,7 +20,7 @@ int world_load(const char *filename)
     return 0;
 }
 
-int world_save(const char *filename)
+int world_serialize(const char *filename)
 {
     FILE *file = fopen(filename, "wb");
 
