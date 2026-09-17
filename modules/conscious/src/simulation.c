@@ -95,6 +95,12 @@ int simulation_init(simulation_t **simulation)
 
     new_simulation->requested_state = SIMULATION_PAUSED;
     new_simulation->actual_state = SIMULATION_PAUSED;
+    
+     /* dummy world step initialization; we still don't have the 
+      * data in the world format, so we made it up to test the 
+      * snapshot feature, that needs that data to append it to 
+      * the world datafile */
+    new_simulation->step_count = 0;
 
     *simulation = new_simulation;
 

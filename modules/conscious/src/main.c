@@ -279,6 +279,48 @@ static int get_absolute_world_path(
 }
 
 /************************************
+ * Save snapshot
+ */
+static int save_snapshot(
+    simulation_t *simulation,
+    const char *world_path)
+{
+    char snapshot_path[PATH_MAX];
+    long long step_count;
+    int length;
+
+    step_count = simulation_get_step_count(simulation);
+
+    length = snprintf(
+        snapshot_path,
+        sizeof(snapshot_path),
+        "%s.%lld",
+        world_path,
+        step_count);
+
+    if (length < 0 || (size_t)length >= sizeof(snapshot_path)) {
+        fprintf(
+            stderr,
+            "Error: Snapshot file path is too long.\n");
+        return -1;
+    }
+
+    if (world_serialize(snapshot_path) != 0) {
+        fprintf(
+            stderr,
+            "Error: Unable to save snapshot: %s\n",
+            snapshot_path);
+        return -1;
+    }
+
+    printf(
+        "\nSnapshot saved: %s\n",
+        snapshot_path);
+
+    return 0;
+}
+
+/************************************
  * Get executable directory
  */
 static int get_executable_directory(char *buffer, size_t size)
@@ -478,7 +520,7 @@ int main(int argc, char **argv)
         }
         else {
             printf(
-                "\r[ON HOLD]     [s] resume  [q] shutdown\033[K");
+                "\r[ON HOLD]     [s] resume  [w] snapshot  [q] shutdown\033[K");
         }
 
         fflush(stdout);
@@ -520,6 +562,11 @@ int main(int argc, char **argv)
             simulation_pause(simulation);
             simulation_wait_until_paused(simulation);
             main_state = ON_HOLD;
+        }
+        else if (key == 'w' && main_state == ON_HOLD) {
+           save_snapshot(
+            simulation,
+            absolute_world_path);
         }
         else if (key == 's' && main_state == ON_HOLD) {
             simulation_resume(simulation);
