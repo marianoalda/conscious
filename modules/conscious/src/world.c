@@ -1,39 +1,157 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "world.h"
 
-int world_load(const char *filename)
+static int read_uint32_be(FILE *file, uint32_t *value)
 {
-    FILE *file = fopen(filename, "rb");
+    unsigned char buffer[4];
 
-    if (file == NULL) {
+    if (fread(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
         return -1;
     }
 
-    /*
-     * Dummy implementation:
-     * The world contents are not processed yet.
-     */
-
-    fclose(file);
+    *value =
+        ((uint32_t)buffer[0] << 24) |
+        ((uint32_t)buffer[1] << 16) |
+        ((uint32_t)buffer[2] << 8) |
+        ((uint32_t)buffer[3]);
 
     return 0;
 }
 
-int world_serialize(const char *filename)
+static int write_uint32_be(FILE *file, uint32_t value)
 {
-    FILE *file = fopen(filename, "wb");
+    unsigned char buffer[4];
 
+    buffer[0] = (unsigned char)(value >> 24);
+    buffer[1] = (unsigned char)(value >> 16);
+    buffer[2] = (unsigned char)(value >> 8);
+    buffer[3] = (unsigned char)value;
+
+    if (fwrite(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/******************************
+ * Deserialize version 0 of the world file format.
+ *
+ * Version 0 contains no world state beyond the header.
+ */
+static int deserialize_v0(FILE *file)
+{
+    (void)file;
+
+    return 0;
+}
+
+/******************************
+ * Serialize version 0 of the world file format.
+ */
+static int serialize_v0(
+    FILE *file,
+    const world_state_t *world)
+{
+    if (write_uint32_be(file, world->format_version) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/******************************
+ * Load the world from a file.
+ *
+ * Dispatches to the appropriate deserialization function
+ * based on the version stored in the file.
+ */
+int world_load(
+    const char *filename,
+    world_state_t *world)
+{
+    FILE *file;
+    char magic[4];
+    uint32_t version;
+    int result;
+
+    file = fopen(filename, "rb");
     if (file == NULL) {
         return -1;
     }
 
+    if (fread(magic, 1, sizeof(magic), file) != sizeof(magic)) {
+        fclose(file);
+        return -1;
+    }
+
+    if (memcmp(magic, WORLD_MAGIC, sizeof(magic)) != 0) {
+        fclose(file);
+        return -1;
+    }
+
+    if (read_uint32_be(file, &version) != 0) {
+        fclose(file);
+        return -1;
+    }
+
     /*
-     * Dummy implementation:
-     * Write a placeholder binary world.
+     * The version is part of the loaded world state.
      */
+    world->format_version = version;
+
+    switch (version) {
+        case 0:
+            result = deserialize_v0(file);
+            break;
+
+        default:
+            result = -1;
+            break;
+    }
 
     fclose(file);
 
-    return 0;
+    return result;
+}
+
+/******************************
+ * Serialize the world to a file.
+ *
+ * Dispatches to the appropriate serialization function
+ * based on the format version stored in the world state.
+ */
+int world_serialize(
+    const char *filename,
+    const world_state_t *world)
+{
+    FILE *file;
+    int result;
+
+    file = fopen(filename, "wb");
+    if (file == NULL) {
+        return -1;
+    }
+
+    if (fwrite(WORLD_MAGIC, 1, sizeof(WORLD_MAGIC) - 1, file) !=
+        sizeof(WORLD_MAGIC) - 1) {
+        fclose(file);
+        return -1;
+    }
+
+    switch (world->format_version) {
+        case 0:
+            result = serialize_v0(file, world);
+            break;
+
+        default:
+            result = -1;
+            break;
+    }
+
+    fclose(file);
+
+    return result;
 }

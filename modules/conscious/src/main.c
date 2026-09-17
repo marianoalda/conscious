@@ -283,6 +283,7 @@ static int get_absolute_world_path(
  */
 static int save_snapshot(
     simulation_t *simulation,
+    const world_state_t *world,
     const char *world_path)
 {
     char snapshot_path[PATH_MAX];
@@ -305,7 +306,7 @@ static int save_snapshot(
         return -1;
     }
 
-    if (world_serialize(snapshot_path) != 0) {
+    if (world_serialize(snapshot_path, world) != 0) {
         fprintf(
             stderr,
             "Error: Unable to save snapshot: %s\n",
@@ -367,6 +368,8 @@ int main(int argc, char **argv)
     char absolute_world_path[PATH_MAX];
 
     FILE *config_file = NULL;
+
+    world_state_t world;
 
     if (parse_arguments(argc, argv, &options) != 0) {
         fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
@@ -454,9 +457,16 @@ int main(int argc, char **argv)
         printf("Loading world: %s\n", absolute_world_path);
     }
 
-    if (world_load(absolute_world_path) != 0) {
+    if (world_load(absolute_world_path, &world) != 0) {
         fprintf(stderr, "Error: Unable to load world %s.\n", absolute_world_path);
         return EXIT_FAILURE;
+    }
+
+    /* print world format version if verbose */
+    if (options.verbose) {
+        printf(
+            "World format version: %u\n",
+            world.format_version);
     }
 
     /*************************
@@ -566,6 +576,7 @@ int main(int argc, char **argv)
         else if (key == 'w' && main_state == ON_HOLD) {
            save_snapshot(
             simulation,
+            &world,
             absolute_world_path);
         }
         else if (key == 's' && main_state == ON_HOLD) {
@@ -587,7 +598,7 @@ int main(int argc, char **argv)
             printf("Saving world: %s\n", absolute_world_path);
         }
 
-        if (world_serialize(absolute_world_path) != 0) {
+        if (world_serialize(absolute_world_path, &world) != 0) {
             fprintf(stderr, "Error: Unable to save world %s.\n", absolute_world_path);
             return EXIT_FAILURE;
         }

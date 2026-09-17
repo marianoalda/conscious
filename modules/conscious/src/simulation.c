@@ -1,4 +1,5 @@
 #include "simulation.h"
+#include "world.h"
 
 #include <stdbool.h>
 #include <pthread.h>
