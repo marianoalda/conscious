@@ -472,13 +472,13 @@ int main(int argc, char **argv)
 
             printf(
                 "\r[SIMULATING]  %lld steps/s  total: %lld  "
-                "[p] pause  [q] shutdown    ",
+                "[p] pause  [q] shutdown\033[K",
                 steps_per_second,
                 current_step_count);
         }
         else {
             printf(
-                "\r[ON HOLD]     [s] resume  [q] shutdown          ");
+                "\r[ON HOLD]     [s] resume  [q] shutdown\033[K");
         }
 
         fflush(stdout);
