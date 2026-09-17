@@ -6,9 +6,17 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <termios.h>
+#include <sys/select.h>
 
 #include "configuration.h"
 #include "world.h"
+#include "simulation.h"
+
+typedef enum {
+    ON_HOLD,
+    SIMULATING
+} main_state_t;
 
 typedef struct {
     int verbose;
@@ -28,6 +36,39 @@ static void print_help(const char *program)
     printf("  -c, --config FILE       Configuration file\n");
     printf("  -n, --name NAME         Node/process name\n");
 }
+
+/************************************
+ * Enable operator input
+ */
+static int enable_operator_input(struct termios *original)
+{
+    struct termios terminal;
+
+    if (tcgetattr(STDIN_FILENO, original) != 0) {
+        return -1;
+    }
+
+    terminal = *original;
+
+    terminal.c_lflag &= ~(ICANON | ECHO);
+    terminal.c_cc[VMIN] = 1;
+    terminal.c_cc[VTIME] = 0;
+
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &terminal) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+/************************************
+ * Disable operator input
+ */
+static void disable_operator_input(const struct termios *original)
+{
+    tcsetattr(STDIN_FILENO, TCSANOW, original);
+}
+
 
 /************************************
  * Parse command-line arguments
@@ -377,7 +418,121 @@ int main(int argc, char **argv)
     }
 
     /*************************
-     * Main loop here
+     * Main simulation loop begins
+     *************************/
+
+    simulation_t *simulation = NULL;
+    struct termios original_terminal;
+    main_state_t main_state;
+
+    long long previous_step_count = 0;
+
+    if (simulation_init(&simulation) != 0) {
+        fprintf(stderr, "Error: Unable to initialize simulation.\n");
+        return EXIT_FAILURE;
+    }
+
+    if (simulation_start(simulation) != 0) {
+        fprintf(stderr, "Error: Unable to start simulation.\n");
+        simulation_destroy(simulation);
+        return EXIT_FAILURE;
+    }
+
+    if (configuration.state_on_start == SIMULATE) {
+        main_state = SIMULATING;
+
+        simulation_resume(simulation);
+    }
+    else {
+        main_state = ON_HOLD;
+
+        simulation_pause(simulation);
+        simulation_wait_until_paused(simulation);
+    }
+
+    if (enable_operator_input(&original_terminal) != 0) {
+        fprintf(stderr, "Error: Unable to configure terminal input.\n");
+        simulation_destroy(simulation);
+        return EXIT_FAILURE;
+    }
+
+    for (;;) {
+        int key;
+        int result;
+        fd_set read_fds;
+        struct timeval timeout;
+
+        if (main_state == SIMULATING) {
+            long long current_step_count;
+            long long steps_per_second;
+
+            current_step_count = simulation_get_step_count(simulation);
+            steps_per_second = current_step_count - previous_step_count;
+            previous_step_count = current_step_count;
+
+            printf(
+                "\r[SIMULATING]  %lld steps/s  total: %lld  "
+                "[p] pause  [q] shutdown    ",
+                steps_per_second,
+                current_step_count);
+        }
+        else {
+            printf(
+                "\r[ON HOLD]     [s] resume  [q] shutdown          ");
+        }
+
+        fflush(stdout);
+
+        FD_ZERO(&read_fds);
+        FD_SET(STDIN_FILENO, &read_fds);
+
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        result = select(
+            STDIN_FILENO + 1,
+            &read_fds,
+            NULL,
+            NULL,
+            &timeout);
+
+        if (result < 0) {
+            break;
+        }
+
+        if (result == 0) {
+            continue;
+        }
+
+        key = getchar();
+
+        if (key == EOF) {
+            break;
+        }
+
+        if (key == 'q') {
+            simulation_pause(simulation);
+            simulation_wait_until_paused(simulation);
+            break;
+        }
+
+        if (key == 'p' && main_state == SIMULATING) {
+            simulation_pause(simulation);
+            simulation_wait_until_paused(simulation);
+            main_state = ON_HOLD;
+        }
+        else if (key == 's' && main_state == ON_HOLD) {
+            simulation_resume(simulation);
+            main_state = SIMULATING;
+        }
+    }
+ 
+    disable_operator_input(&original_terminal);
+
+    simulation_destroy(simulation);
+
+    /*************************
+     * Main simulation loop ends
      *************************/
 
     if (configuration.save_state_on_shutdown) {
