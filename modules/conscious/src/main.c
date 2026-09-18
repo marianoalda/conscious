@@ -457,8 +457,18 @@ int main(int argc, char **argv)
         printf("Loading world: %s\n", absolute_world_path);
     }
 
-    if (world_load(absolute_world_path, &world) != 0) {
-        fprintf(stderr, "Error: Unable to load world %s.\n", absolute_world_path);
+    world_error_t world_error;
+
+    world_error = world_load(
+        absolute_world_path,
+        &world);
+
+    if (world_error != WORLD_OK) {
+        fprintf(
+            stderr,
+            "Error: Unable to load world: %s.\n",
+            world_error_string(world_error));
+
         return EXIT_FAILURE;
     }
 
