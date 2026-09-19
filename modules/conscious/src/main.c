@@ -390,6 +390,10 @@ int main(int argc, char **argv)
     if (options.validate_world_file != NULL) {
         world_error_t world_error;
 
+        printf(
+            "Validating world: %s\n",
+            options.validate_world_file);
+
         world_error = world_load(
             options.validate_world_file,
             &world);
@@ -397,7 +401,7 @@ int main(int argc, char **argv)
         if (world_error != WORLD_OK) {
             fprintf(
                 stderr,
-                "World validation failed: %s.\n",
+                "World validation failed: %s\n",
                 world_error_string(world_error));
 
             world_destroy(&world);
@@ -405,15 +409,13 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
 
-        printf(
-            "World validation successful: %s\n",
-            options.validate_world_file);
+        printf("World validation successful.\n");
 
         world_destroy(&world);
 
         return EXIT_SUCCESS;
     }
-
+    
     /*
     * Get executable directory.
     */
