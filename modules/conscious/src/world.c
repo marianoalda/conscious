@@ -434,9 +434,8 @@ world_error_t world_load(
     uint32_t version;
     world_error_t error;
 
-    world->heightmap.cell_size = 0;
-    world->heightmap.min_height = 0;
-    world->heightmap.values = NULL;
+    /* initialize the world state to zero */
+    *world = (world_state_t){0};
 
     file = fopen(filename, "rb");
     if (file == NULL) {

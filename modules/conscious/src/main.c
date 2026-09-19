@@ -22,6 +22,7 @@ typedef struct {
     int verbose;
     const char *config_file;
     const char *name;
+    const char *validate_world_file;
 } options_t;
 
 /************************************
@@ -35,6 +36,7 @@ static void print_help(const char *program)
     printf("  -v, --verbose           Enable verbose output\n");
     printf("  -c, --config FILE       Configuration file\n");
     printf("  -n, --name NAME         Node/process name\n");
+    printf("  -w, --validate-world FILE Validate world file\n");
 }
 
 /************************************
@@ -80,12 +82,13 @@ static int parse_arguments(int argc, char **argv, options_t *options)
         {"verbose", no_argument,       NULL, 'v'},
         {"config",  required_argument, NULL, 'c'},
         {"name",    required_argument, NULL, 'n'},
+        {"validate-world", required_argument, NULL, 'w'},
         {NULL,      0,                 NULL,  0}
     };
 
     int option;
 
-    while ((option = getopt_long(argc, argv, "hvc:n:", long_options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "hvc:n:w:", long_options, NULL)) != -1) {
         switch (option) {
         case 'h':
             print_help(argv[0]);
@@ -101,6 +104,10 @@ static int parse_arguments(int argc, char **argv, options_t *options)
 
         case 'n':
             options->name = optarg;
+            break;
+
+        case 'w':
+            options->validate_world_file = optarg;
             break;
 
         default:
@@ -354,7 +361,8 @@ int main(int argc, char **argv)
     options_t options = {
         .verbose = 0,
         .config_file = NULL,
-        .name = NULL
+        .name = NULL,
+        .validate_world_file = NULL
     };
 
     configuration_t configuration = {
@@ -374,6 +382,36 @@ int main(int argc, char **argv)
     if (parse_arguments(argc, argv, &options) != 0) {
         fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
         return EXIT_FAILURE;
+    }
+
+    /*
+     * Validate a world file and exit if specified.
+     */
+    if (options.validate_world_file != NULL) {
+        world_error_t world_error;
+
+        world_error = world_load(
+            options.validate_world_file,
+            &world);
+
+        if (world_error != WORLD_OK) {
+            fprintf(
+                stderr,
+                "World validation failed: %s.\n",
+                world_error_string(world_error));
+
+            world_destroy(&world);
+
+            return EXIT_FAILURE;
+        }
+
+        printf(
+            "World validation successful: %s\n",
+            options.validate_world_file);
+
+        world_destroy(&world);
+
+        return EXIT_SUCCESS;
     }
 
     /*
