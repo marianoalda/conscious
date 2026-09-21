@@ -22,8 +22,8 @@ world_error_t world_load(
     uint32_t version;
     world_error_t error;
 
-    /* initialize the world state to zero */
-    *world = (world_state_t){0};
+    /* initialize the world state to backwards compatibility defaults */
+    world_initialize_defaults(world);
 
     file = fopen(filename, "rb");
     if (file == NULL) {
@@ -55,6 +55,10 @@ world_error_t world_load(
 
         case 1:
             error = world_v1_load(file, world);
+            break;
+
+        case 2:
+            error = world_v2_load(file, world);
             break;
 
         default:
@@ -97,14 +101,14 @@ world_error_t world_serialize(
 
     error = world_io_write_uint32_be(
         file,
-        1);
+        WORLD_CURRENT_VERSION);
 
     if (error != WORLD_OK) {
         fclose(file);
         return error;
     }
 
-    error = world_v1_serialize(
+    error = world_v2_serialize(
         file,
         world);
 
@@ -149,6 +153,19 @@ const char *world_error_string(world_error_t error)
     }
 }
 
+void world_initialize_defaults(
+    world_state_t *world)
+{
+    *world = (world_state_t){0};
+
+    world->modularity = WORLD_MODULARITY_CLOSED;
+
+    world->heightmap.clock.mode =
+        WORLD_CLOCK_DIVISOR;
+
+    world->heightmap.clock.exponent = 0;
+}
+
 /*******************************
  * Destroy the world state and free any allocated memory.
  */
@@ -160,3 +177,4 @@ void world_destroy(world_state_t *world)
     world->heightmap.cell_size = 0;
     world->heightmap.min_height = 0;
 }
+

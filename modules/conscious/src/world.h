@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #define WORLD_MAGIC "CWLD"
+#define WORLD_CURRENT_VERSION 2
+
 #define WORLD_LAYER_MAGIC "_LYR"
 #define WORLD_LAYER_TYPE_HEIGHTMAP "TYPE_HEIGHTMAP"
 #define WORLD_LAYER_NAME_HEIGHTMAP "LYR_HEIGHTMAP"
@@ -19,9 +21,25 @@ typedef enum {
     WORLD_ERROR_INVALID_FORMAT
 } world_error_t;
 
+typedef enum {
+    WORLD_CLOCK_NOEV,
+    WORLD_CLOCK_DIVISOR
+} world_clock_mode_t;
+
+typedef struct {
+    world_clock_mode_t mode;
+    uint16_t exponent;
+} world_clock_t;
+
+typedef enum {
+    WORLD_MODULARITY_CLOSED,
+    WORLD_MODULARITY_MODULAR
+} world_modularity_t;
+
 typedef struct {
     uint32_t cell_size;
     int32_t min_height;
+    world_clock_t clock;
     uint32_t *values;
 } world_heightmap_t;
 
@@ -29,6 +47,7 @@ typedef struct {
     uint32_t format_version;
     uint32_t width;
     uint32_t depth;
+    world_modularity_t modularity;
     world_heightmap_t heightmap;
 } world_state_t;
 
