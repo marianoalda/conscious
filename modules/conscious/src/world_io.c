@@ -64,7 +64,7 @@ world_error_t world_io_write_int32_be(
         (uint32_t)value);
 }
 
-static world_error_t world_io_read_fixed_string(
+world_error_t world_io_read_fixed_string(
     FILE *file,
     char *buffer,
     size_t size)
