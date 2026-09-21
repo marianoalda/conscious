@@ -57,6 +57,14 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
+    /* in v1, we didn't even have a clock divisor,
+     * but the flag for heightmap layer was "no evolution"
+     */
+    world->heightmap.clock.mode =
+        WORLD_CLOCK_NOEV;
+
+    world->heightmap.clock.exponent = 0;
+
     error = world_io_read_fixed_string(
         file,
         storage_type,
