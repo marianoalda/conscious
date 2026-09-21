@@ -96,7 +96,7 @@ static int deserialize_v0(FILE *file)
 /******************************
  * Deserialize the heightmap layer of the world file.
  */
-static world_error_t deserialize_heightmap(
+static world_error_t deserialize_heightmap_v1(
     FILE *file,
     world_state_t *world)
 {
@@ -285,7 +285,7 @@ static world_error_t deserialize_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    return deserialize_heightmap(file, world);
+    return deserialize_heightmap_v1(file, world);
 }
 
 /******************************
