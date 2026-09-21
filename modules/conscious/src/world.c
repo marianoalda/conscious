@@ -6,18 +6,6 @@
 #include <string.h>
 #include <stdlib.h>
 
-static world_error_t read_fixed_string(
-    FILE *file,
-    char *buffer,
-    size_t size)
-{
-    if (fread(buffer, 1, size, file) != size) {
-        return WORLD_ERROR_TRUNCATED;
-    }
-
-    return WORLD_OK;
-}
-
 /******************************
  * Deserialize version 0 of the world file format.
  *
@@ -51,7 +39,7 @@ static world_error_t deserialize_heightmap_v1(
 
     world_error_t error;
 
-    error = read_fixed_string(
+    error = world_io_read_fixed_string(
         file,
         layer_name,
         sizeof(layer_name));
@@ -67,7 +55,7 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = read_fixed_string(
+    error = world_io_read_fixed_string(
         file,
         evolution,
         sizeof(evolution));
@@ -83,7 +71,7 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = read_fixed_string(
+    error = world_io_read_fixed_string(
         file,
         storage_type,
         sizeof(storage_type));
@@ -190,7 +178,7 @@ static world_error_t deserialize_v1(
     world->width = width;
     world->depth = depth;
 
-    error = read_fixed_string(
+    error = world_io_read_fixed_string(
         file,
         layer_magic,
         sizeof(layer_magic));
@@ -206,7 +194,7 @@ static world_error_t deserialize_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = read_fixed_string(
+    error = world_io_read_fixed_string(
         file,
         layer_type,
         sizeof(layer_type));

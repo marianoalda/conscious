@@ -22,4 +22,9 @@ world_error_t world_io_write_int32_be(
     FILE *file,
     int32_t value);
 
+world_error_t world_io_read_fixed_string(
+    FILE *file,
+    char *buffer,
+    size_t size);
+
 #endif

@@ -64,3 +64,15 @@ world_error_t world_io_write_int32_be(
         (uint32_t)value);
 }
 
+static world_error_t world_io_read_fixed_string(
+    FILE *file,
+    char *buffer,
+    size_t size)
+{
+    if (fread(buffer, 1, size, file) != size) {
+        return WORLD_ERROR_TRUNCATED;
+    }
+
+    return WORLD_OK;
+}
+
