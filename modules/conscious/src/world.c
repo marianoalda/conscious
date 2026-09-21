@@ -1,9 +1,10 @@
+#include "world.h"
+#include "world_io.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-#include "world.h"
 
 static world_error_t read_fixed_string(
     FILE *file,
@@ -15,70 +16,6 @@ static world_error_t read_fixed_string(
     }
 
     return WORLD_OK;
-}
-
-static world_error_t read_uint32_be(
-    FILE *file,
-    uint32_t *value)
-{
-    unsigned char buffer[4];
-
-    if (fread(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
-        return WORLD_ERROR_TRUNCATED;
-    }
-
-    *value =
-        ((uint32_t)buffer[0] << 24) |
-        ((uint32_t)buffer[1] << 16) |
-        ((uint32_t)buffer[2] << 8) |
-        ((uint32_t)buffer[3]);
-
-    return WORLD_OK;
-}
-
-static world_error_t read_int32_be(
-    FILE *file,
-    int32_t *value)
-{
-    uint32_t raw;
-    world_error_t error;
-
-    error = read_uint32_be(file, &raw);
-
-    if (error != WORLD_OK) {
-        return error;
-    }
-
-    *value = (int32_t)raw;
-
-    return WORLD_OK;
-}
-
-static world_error_t write_uint32_be(
-    FILE *file,
-    uint32_t value)
-{
-    unsigned char buffer[4];
-
-    buffer[0] = (unsigned char)(value >> 24);
-    buffer[1] = (unsigned char)(value >> 16);
-    buffer[2] = (unsigned char)(value >> 8);
-    buffer[3] = (unsigned char)value;
-
-    if (fwrite(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
-        return WORLD_ERROR_FILE;
-    }
-
-    return WORLD_OK;
-}
-
-static world_error_t write_int32_be(
-    FILE *file,
-    int32_t value)
-{
-    return write_uint32_be(
-        file,
-        (uint32_t)value);
 }
 
 /******************************
@@ -162,7 +99,7 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = read_uint32_be(file, &cell_size);
+    error = world_io_read_uint32_be(file, &cell_size);
 
     if (error != WORLD_OK) {
         return error;
@@ -172,7 +109,7 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = read_int32_be(file, &min_height);
+    error = world_io_read_int32_be(file, &min_height);
 
     if (error != WORLD_OK) {
         return error;
@@ -203,7 +140,7 @@ static world_error_t deserialize_heightmap_v1(
     world->heightmap.min_height = min_height;
 
     for (i = 0; i < cell_count; i++) {
-        error = read_uint32_be(
+        error = world_io_read_uint32_be(
             file,
             &world->heightmap.values[i]);
 
@@ -234,13 +171,13 @@ static world_error_t deserialize_v1(
 
     world_error_t error;
 
-    error = read_uint32_be(file, &width);
+    error = world_io_read_uint32_be(file, &width);
 
     if (error != WORLD_OK) {
         return error;
     }
 
-    error = read_uint32_be(file, &depth);
+    error = world_io_read_uint32_be(file, &depth);
 
     if (error != WORLD_OK) {
         return error;
@@ -328,13 +265,13 @@ static world_error_t serialize_v1(
 
     cell_count = (uint64_t)cell_width * cell_depth;
 
-    error = write_uint32_be(file, world->width);
+    error = world_io_write_uint32_be(file, world->width);
 
     if (error != WORLD_OK) {
         return error;
     }
 
-    error = write_uint32_be(file, world->depth);
+    error = world_io_write_uint32_be(file, world->depth);
 
     if (error != WORLD_OK) {
         return error;
@@ -390,7 +327,7 @@ static world_error_t serialize_v1(
         return WORLD_ERROR_FILE;
     }
 
-    error = write_uint32_be(
+    error = world_io_write_uint32_be(
         file,
         world->heightmap.cell_size);
 
@@ -398,7 +335,7 @@ static world_error_t serialize_v1(
         return error;
     }
 
-    error = write_int32_be(
+    error = world_io_write_int32_be(
         file,
         world->heightmap.min_height);
 
@@ -407,7 +344,7 @@ static world_error_t serialize_v1(
     }
 
     for (i = 0; i < cell_count; i++) {
-        error = write_uint32_be(
+        error = world_io_write_uint32_be(
             file,
             world->heightmap.values[i]);
 
@@ -452,7 +389,7 @@ world_error_t world_load(
         return WORLD_ERROR_INVALID_MAGIC;
     }
 
-    error = read_uint32_be(file, &version);
+    error = world_io_read_uint32_be(file, &version);
     if (error != WORLD_OK) {
         fclose(file);
         return error;
@@ -507,7 +444,7 @@ world_error_t world_serialize(
         return WORLD_ERROR_FILE;
     }
 
-    error = write_uint32_be(
+    error = world_io_write_uint32_be(
         file,
         1);
 
