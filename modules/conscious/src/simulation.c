@@ -28,6 +28,11 @@ struct simulation {
 
 static void simulate_step(void)
 {
+    /*
+     * To avoid the tick rolling at full 
+     * speed while not really simulating 
+     * anything, we use a 1ms timer
+     */
     struct timespec duration;
 
     duration.tv_sec = 0;
@@ -68,9 +73,10 @@ static void *simulation_run(void *arg)
 
         simulate_step();
 
-        /* Here, either
+        /* 
+         * Here, either:
          *   simulate the beings or
-         *   wait until they notify their simulation is finished or
+         *   wait until they notify their simulation is finished or even better
          *   include their simulation inside simulate_step()
          * The definitive implementation depends on the architecture
          * of the beings.
