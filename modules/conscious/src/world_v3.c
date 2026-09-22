@@ -166,7 +166,7 @@ static world_error_t write_clock(
     return WORLD_OK;
 }
 
-static world_error_t deserialize_heightmap_v2(
+static world_error_t deserialize_heightmap_v3(
     FILE *file,
     world_state_t *world)
 {
@@ -207,7 +207,13 @@ static world_error_t deserialize_heightmap_v2(
         return error;
     }
 
-    world->heightmap.last_simulation_tick = 0;
+    error = world_io_read_uint64_be(
+        file,
+        &world->heightmap.last_simulation_tick);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
 
     error = world_io_read_fixed_string(
         file,
@@ -225,7 +231,9 @@ static world_error_t deserialize_heightmap_v2(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = world_io_read_uint32_be(file, &cell_size);
+    error = world_io_read_uint32_be(
+        file,
+        &cell_size);
 
     if (error != WORLD_OK) {
         return error;
@@ -235,7 +243,9 @@ static world_error_t deserialize_heightmap_v2(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    error = world_io_read_int32_be(file, &min_height);
+    error = world_io_read_int32_be(
+        file,
+        &min_height);
 
     if (error != WORLD_OK) {
         return error;
@@ -280,25 +290,30 @@ static world_error_t deserialize_heightmap_v2(
     return WORLD_OK;
 }
 
-world_error_t world_v2_load(
+world_error_t world_v3_load(
     FILE *file,
     world_state_t *world)
 {
     uint32_t width;
     uint32_t depth;
+    uint64_t age;
 
     char layer_magic[4];
     char layer_type[16];
 
     world_error_t error;
 
-    error = world_io_read_uint32_be(file, &width);
+    error = world_io_read_uint32_be(
+        file,
+        &width);
 
     if (error != WORLD_OK) {
         return error;
     }
 
-    error = world_io_read_uint32_be(file, &depth);
+    error = world_io_read_uint32_be(
+        file,
+        &depth);
 
     if (error != WORLD_OK) {
         return error;
@@ -318,6 +333,16 @@ world_error_t world_v2_load(
     if (error != WORLD_OK) {
         return error;
     }
+
+    error = world_io_read_uint64_be(
+        file,
+        &age);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    world->age = age;
 
     error = world_io_read_fixed_string(
         file,
@@ -351,12 +376,12 @@ world_error_t world_v2_load(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    return deserialize_heightmap_v2(
+    return deserialize_heightmap_v3(
         file,
         world);
 }
 
-world_error_t world_v2_serialize(
+world_error_t world_v3_serialize(
     FILE *file,
     const world_state_t *world)
 {
@@ -366,7 +391,8 @@ world_error_t world_v2_serialize(
     uint64_t i;
     world_error_t error;
 
-    if (world->width == 0 || world->depth == 0) {
+    if (world->width == 0 ||
+        world->depth == 0) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
@@ -389,7 +415,8 @@ world_error_t world_v2_serialize(
     cell_depth =
         world->depth / world->heightmap.cell_size;
 
-    cell_count = (uint64_t)cell_width * cell_depth;
+    cell_count =
+        (uint64_t)cell_width * cell_depth;
 
     error = world_io_write_uint32_be(
         file,
@@ -415,6 +442,14 @@ world_error_t world_v2_serialize(
         return error;
     }
 
+    error = world_io_write_uint64_be(
+        file,
+        world->age);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
     if (fwrite(
             WORLD_LAYER_MAGIC,
             1,
@@ -431,7 +466,11 @@ world_error_t world_v2_serialize(
             WORLD_LAYER_TYPE_HEIGHTMAP,
             strlen(WORLD_LAYER_TYPE_HEIGHTMAP));
 
-        if (fwrite(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
+        if (fwrite(
+                buffer,
+                1,
+                sizeof(buffer),
+                file) != sizeof(buffer)) {
             return WORLD_ERROR_FILE;
         }
     }
@@ -444,7 +483,11 @@ world_error_t world_v2_serialize(
             WORLD_LAYER_NAME_HEIGHTMAP,
             strlen(WORLD_LAYER_NAME_HEIGHTMAP));
 
-        if (fwrite(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
+        if (fwrite(
+                buffer,
+                1,
+                sizeof(buffer),
+                file) != sizeof(buffer)) {
             return WORLD_ERROR_FILE;
         }
     }
@@ -452,6 +495,14 @@ world_error_t world_v2_serialize(
     error = write_clock(
         file,
         &world->heightmap.clock);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_write_uint64_be(
+        file,
+        world->heightmap.last_simulation_tick);
 
     if (error != WORLD_OK) {
         return error;
@@ -493,3 +544,4 @@ world_error_t world_v2_serialize(
 
     return WORLD_OK;
 }
+

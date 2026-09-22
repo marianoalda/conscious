@@ -65,6 +65,8 @@ static world_error_t deserialize_heightmap_v1(
 
     world->heightmap.clock.exponent = 0;
 
+    world->heightmap.last_simulation_tick = 0;
+
     error = world_io_read_fixed_string(
         file,
         storage_type,

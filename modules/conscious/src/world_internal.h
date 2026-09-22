@@ -28,4 +28,12 @@ world_error_t world_v2_serialize(
     FILE *file,
     const world_state_t *world);
 
+world_error_t world_v3_load(
+    FILE *file,
+    world_state_t *world);
+
+world_error_t world_v3_serialize(
+    FILE *file,
+    const world_state_t *world);
+
 #endif

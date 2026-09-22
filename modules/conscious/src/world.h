@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define WORLD_MAGIC "CWLD"
-#define WORLD_CURRENT_VERSION 2
+#define WORLD_CURRENT_VERSION 3
 
 #define WORLD_LAYER_MAGIC "_LYR"
 #define WORLD_LAYER_TYPE_HEIGHTMAP "TYPE_HEIGHTMAP"
@@ -17,6 +17,8 @@
 
 #define WORLD_LAYER_CLOCK_NOEV "CLK_NOEV"
 #define WORLD_LAYER_CLOCK_PREFIX "CLK_"
+
+typedef uint64_t world_tick_t;
 
 typedef enum {
     WORLD_OK = 0,
@@ -46,6 +48,7 @@ typedef struct {
     uint32_t cell_size;
     int32_t min_height;
     world_clock_t clock;
+    world_tick_t last_simulation_tick;
     uint32_t *values;
 } world_heightmap_t;
 
@@ -54,6 +57,7 @@ typedef struct {
     uint32_t width;
     uint32_t depth;
     world_modularity_t modularity;
+    world_tick_t age;
     world_heightmap_t heightmap;
 } world_state_t;
 

@@ -520,7 +520,7 @@ int main(int argc, char **argv)
     }
 
     /*************************
-     * Main simulation loop begins
+     * Main control loop begins (operator, not simulation)
      *************************/
 
     simulation_t *simulation = NULL;
@@ -640,7 +640,7 @@ int main(int argc, char **argv)
     simulation_destroy(simulation);
 
     /*************************
-     * Main simulation loop ends
+     * Main control loop ends (operator, not simulation)
      *************************/
 
     if (configuration.save_state_on_shutdown) {

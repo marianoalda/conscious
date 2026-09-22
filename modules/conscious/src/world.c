@@ -61,6 +61,10 @@ world_error_t world_load(
             error = world_v2_load(file, world);
             break;
 
+        case 3:
+            error = world_v3_load(file, world);
+            break;
+
         default:
             error = WORLD_ERROR_UNSUPPORTED_VERSION;
             break;
@@ -108,7 +112,7 @@ world_error_t world_serialize(
         return error;
     }
 
-    error = world_v2_serialize(
+    error = world_v3_serialize(
         file,
         world);
 
