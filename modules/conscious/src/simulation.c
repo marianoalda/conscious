@@ -20,7 +20,7 @@ struct simulation {
     simulation_state_t requested_state;
     simulation_state_t actual_state;
 
-    long long step_count;
+    world_tick_t world_tick;
 
     bool terminate_requested;
     bool thread_started;
@@ -68,13 +68,24 @@ static void *simulation_run(void *arg)
 
         simulate_step();
 
+        /* Here, either
+         *   simulate the beings or
+         *   wait until they notify their simulation is finished or
+         *   include their simulation inside simulate_step()
+         * The definitive implementation depends on the architecture
+         * of the beings.
+         */
+
         pthread_mutex_lock(&simulation->mutex);
 
-        simulation->step_count++;
+        /* the tick is considered done AFTER the simulation is done */
+        simulation->world_tick++;
     }
 }
 
-int simulation_init(simulation_t **simulation)
+int simulation_init(
+    simulation_t **simulation,
+    world_tick_t initial_tick)
 {
     simulation_t *new_simulation;
 
@@ -97,11 +108,7 @@ int simulation_init(simulation_t **simulation)
     new_simulation->requested_state = SIMULATION_PAUSED;
     new_simulation->actual_state = SIMULATION_PAUSED;
     
-     /* dummy world step initialization; we still don't have the 
-      * data in the world format, so we made it up to test the 
-      * snapshot feature, that needs that data to append it to 
-      * the world datafile */
-    new_simulation->step_count = 0;
+    new_simulation->world_tick = initial_tick;
 
     *simulation = new_simulation;
 
@@ -168,17 +175,15 @@ int simulation_wait_until_paused(simulation_t *simulation)
     return 0;
 }
 
-long long simulation_get_step_count(simulation_t *simulation)
+world_tick_t simulation_get_world_tick(simulation_t *simulation)
 {
-    long long step_count;
+    world_tick_t world_tick;
 
     pthread_mutex_lock(&simulation->mutex);
-
-    step_count = simulation->step_count;
-
+    world_tick = simulation->world_tick;
     pthread_mutex_unlock(&simulation->mutex);
 
-    return step_count;
+    return world_tick;
 }
 
 void simulation_destroy(simulation_t *simulation)

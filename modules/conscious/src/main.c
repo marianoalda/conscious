@@ -8,6 +8,8 @@
 #include <ctype.h>
 #include <termios.h>
 #include <sys/select.h>
+#include <inttypes.h>
+#include <time.h>
 
 #include "configuration.h"
 #include "world.h"
@@ -294,17 +296,21 @@ static int save_snapshot(
     const char *world_path)
 {
     char snapshot_path[PATH_MAX];
-    long long step_count;
+    world_tick_t world_tick;
+    world_state_t snapshot_world;
     int length;
 
-    step_count = simulation_get_step_count(simulation);
+    world_tick = simulation_get_world_tick(simulation);
+
+    snapshot_world = *world;
+    snapshot_world.age = world_tick;
 
     length = snprintf(
         snapshot_path,
         sizeof(snapshot_path),
-        "%s.%lld",
+        "%s.%" PRIu64,
         world_path,
-        step_count);
+        world_tick);
 
     if (length < 0 || (size_t)length >= sizeof(snapshot_path)) {
         fprintf(
@@ -313,7 +319,7 @@ static int save_snapshot(
         return -1;
     }
 
-    if (world_serialize(snapshot_path, world) != 0) {
+    if (world_serialize(snapshot_path, &snapshot_world) != 0) {
         fprintf(
             stderr,
             "Error: Unable to save snapshot: %s\n",
@@ -527,9 +533,10 @@ int main(int argc, char **argv)
     struct termios original_terminal;
     main_state_t main_state;
 
-    long long previous_step_count = 0;
+    world_tick_t previous_world_tick = 0;
+    struct timespec previous_time;
 
-    if (simulation_init(&simulation) != 0) {
+    if (simulation_init(&simulation, world.age) != 0) {
         fprintf(stderr, "Error: Unable to initialize simulation.\n");
         return EXIT_FAILURE;
     }
@@ -544,6 +551,9 @@ int main(int argc, char **argv)
         main_state = SIMULATING;
 
         simulation_resume(simulation);
+
+        previous_world_tick = simulation_get_world_tick(simulation);
+        clock_gettime(CLOCK_MONOTONIC, &previous_time);
     }
     else {
         main_state = ON_HOLD;
@@ -565,20 +575,36 @@ int main(int argc, char **argv)
         struct timeval timeout;
 
         if (main_state == SIMULATING) {
-            long long current_step_count;
-            long long steps_per_second;
+            world_tick_t current_world_tick;
+            struct timespec current_time;
+            double elapsed_seconds;
+            double ticks_per_second;
 
-            current_step_count = simulation_get_step_count(simulation);
-            steps_per_second = current_step_count - previous_step_count;
-            previous_step_count = current_step_count;
+            current_world_tick = simulation_get_world_tick(simulation);
+
+            clock_gettime(CLOCK_MONOTONIC, &current_time);
+
+            elapsed_seconds =
+                (double)(current_time.tv_sec - previous_time.tv_sec) +
+                (double)(current_time.tv_nsec - previous_time.tv_nsec) / 1000000000.0;
+
+            ticks_per_second = 0.0;
+
+            if (elapsed_seconds > 0.0) {
+                ticks_per_second =
+                    (double)(current_world_tick - previous_world_tick) /
+                    elapsed_seconds;
+            }
+
+            previous_world_tick = current_world_tick;
+            previous_time = current_time;
 
             printf(
-                "\r[SIMULATING]  %lld steps/s  total: %lld  "
+                "\r[SIMULATING]  %.1f ticks/s  age: %" PRIu64 "  "
                 "[p] pause  [q] shutdown\033[K",
-                steps_per_second,
-                current_step_count);
-        }
-        else {
+                ticks_per_second,
+                current_world_tick);
+        } else {
             printf(
                 "\r[ON HOLD]     [s] resume  [w] snapshot  [q] shutdown\033[K");
         }
@@ -613,8 +639,15 @@ int main(int argc, char **argv)
         }
 
         if (key == 'q') {
+            /* to avoid pausing twice, we rely on the code 
+             * AFTER the "for" loop to pause, even if it 
+             * wouldn't hurt to do it twice 
+             */
+
+            /*
             simulation_pause(simulation);
             simulation_wait_until_paused(simulation);
+            */
             break;
         }
 
@@ -632,10 +665,18 @@ int main(int argc, char **argv)
         else if (key == 's' && main_state == ON_HOLD) {
             simulation_resume(simulation);
             main_state = SIMULATING;
+
+            previous_world_tick = simulation_get_world_tick(simulation);
+            clock_gettime(CLOCK_MONOTONIC, &previous_time);
         }
     }
  
     disable_operator_input(&original_terminal);
+
+    simulation_pause(simulation);
+    simulation_wait_until_paused(simulation);
+
+    world.age = simulation_get_world_tick(simulation);
 
     simulation_destroy(simulation);
 
