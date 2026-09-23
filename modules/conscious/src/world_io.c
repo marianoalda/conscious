@@ -1,5 +1,20 @@
 #include "world_io.h"
 
+world_error_t world_io_read_uint16_be(
+    FILE *file,
+    uint16_t *value)
+{
+    unsigned char buffer[2];
+
+    if (fread(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
+        return WORLD_ERROR_TRUNCATED;
+    }
+
+    *value = (uint16_t)(((uint16_t)buffer[0] << 8) | (uint16_t)buffer[1]);
+
+    return WORLD_OK;
+}
+
 world_error_t world_io_read_uint32_be(
     FILE *file,
     uint32_t *value)
@@ -33,6 +48,22 @@ world_error_t world_io_read_int32_be(
     }
 
     *value = (int32_t)raw;
+
+    return WORLD_OK;
+}
+
+world_error_t world_io_write_uint16_be(
+    FILE *file,
+    uint16_t value)
+{
+    unsigned char buffer[2];
+
+    buffer[0] = (unsigned char)(value >> 8);
+    buffer[1] = (unsigned char)value;
+
+    if (fwrite(buffer, 1, sizeof(buffer), file) != sizeof(buffer)) {
+        return WORLD_ERROR_FILE;
+    }
 
     return WORLD_OK;
 }

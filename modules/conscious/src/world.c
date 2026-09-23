@@ -187,8 +187,12 @@ static void world_free_layer(world_layer_t *layer)
 
             free(light->published);
             free(light->pending);
-        } else if (layer->type == WORLD_LAYER_HUMIDITY ||
-                   layer->type == WORLD_LAYER_FERTILITY ||
+        } else if (layer->type == WORLD_LAYER_HUMIDITY) {
+            world_u16_payload_t *grid = layer->payload;
+
+            free(grid->published);
+            free(grid->pending);
+        } else if (layer->type == WORLD_LAYER_FERTILITY ||
                    layer->type == WORLD_LAYER_GRASS) {
             world_u8_payload_t *grid = layer->payload;
 
@@ -459,7 +463,68 @@ world_error_t world_append_difflight_layer(
 }
 
 /*
- * Humidity, fertility, and grass. cell_size is 10 cm.
+ * Humidity. cell_size is 10 cm. Each cell is uint16.
+ * On success the layer owns published and a pending copy.
+ * On failure the caller still owns published.
+ */
+world_error_t world_append_u16_layer(
+    world_state_t *world,
+    world_layer_type_t type,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    uint16_t *published)
+{
+    world_u16_payload_t *payload;
+    world_error_t error;
+
+    if (type != WORLD_LAYER_HUMIDITY) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    if (cell_size != WORLD_U8_CELL_MM) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    payload = calloc(1, sizeof(*payload));
+
+    if (payload == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    payload->cell_size = cell_size;
+    payload->published = published;
+
+    error = allocate_pending_grid(
+        world,
+        cell_size,
+        published,
+        sizeof(uint16_t),
+        (void **)&payload->pending);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
+
+    error = world_append_layer(
+        world,
+        type,
+        clock,
+        last_simulation_tick,
+        payload);
+
+    if (error != WORLD_OK) {
+        free(payload->pending);
+        free(payload);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
+/*
+ * Fertility and grass. cell_size is 10 cm.
  * On success the layer owns published and a pending copy.
  * On failure the caller still owns published.
  */
@@ -474,8 +539,7 @@ world_error_t world_append_u8_layer(
     world_u8_payload_t *payload;
     world_error_t error;
 
-    if (type != WORLD_LAYER_HUMIDITY &&
-        type != WORLD_LAYER_FERTILITY &&
+    if (type != WORLD_LAYER_FERTILITY &&
         type != WORLD_LAYER_GRASS) {
         return WORLD_ERROR_INVALID_FORMAT;
     }

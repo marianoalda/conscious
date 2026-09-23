@@ -136,4 +136,4 @@ Fixed text fields are written zero-padded to their full width. The magic, the la
 * [World Format Version 2](v2.md)
 * [World Format Version 3](v3.md)
 
-Each version document is the specification of that version's bytes.
+Each version document is the specification of that version's bytes. The meaning of each layer, and the state of its simulation function, is in [Layers](../layers/README.md).

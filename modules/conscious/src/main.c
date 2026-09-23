@@ -159,8 +159,18 @@ static void print_loaded_world(const world_state_t *world)
                 WORLD_IRRADIANCE_UNIT);
         }
 
-        if ((layer->type == WORLD_LAYER_HUMIDITY ||
-             layer->type == WORLD_LAYER_FERTILITY ||
+        if (layer->type == WORLD_LAYER_HUMIDITY &&
+            layer->payload != NULL) {
+            const world_u16_payload_t *grid = layer->payload;
+
+            printf(
+                "      cell_size: %" PRIu32 " %s\n",
+                grid->cell_size,
+                WORLD_DISTANCE_UNIT);
+            printf("      value: uint16\n");
+        }
+
+        if ((layer->type == WORLD_LAYER_FERTILITY ||
              layer->type == WORLD_LAYER_GRASS) &&
             layer->payload != NULL) {
             const world_u8_payload_t *grid = layer->payload;

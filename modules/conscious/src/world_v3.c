@@ -403,6 +403,163 @@ static world_error_t deserialize_u8_layer_v3(
     return WORLD_OK;
 }
 
+static world_error_t read_u16_values(
+    FILE *file,
+    const world_state_t *world,
+    uint32_t *cell_size,
+    uint16_t **values)
+{
+    char storage_type[4];
+    int32_t minimum;
+    uint64_t cell_count;
+    uint64_t i;
+    world_error_t error;
+
+    error = world_io_read_fixed_string(
+        file,
+        storage_type,
+        sizeof(storage_type));
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (memcmp(
+            storage_type,
+            WORLD_LAYER_STORAGE_U16,
+            sizeof(storage_type)) != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    error = world_io_read_uint32_be(
+        file,
+        cell_size);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (*cell_size != WORLD_U8_CELL_MM) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    error = world_io_read_int32_be(
+        file,
+        &minimum);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (minimum != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    if (world->width % *cell_size != 0 ||
+        world->depth % *cell_size != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / *cell_size) *
+        (uint64_t)(world->depth / *cell_size);
+
+    if (cell_count > SIZE_MAX) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    *values = calloc((size_t)cell_count, sizeof(uint16_t));
+
+    if (*values == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    for (i = 0; i < cell_count; i++) {
+        error = world_io_read_uint16_be(
+            file,
+            &(*values)[i]);
+
+        if (error != WORLD_OK) {
+            free(*values);
+            *values = NULL;
+            return error;
+        }
+    }
+
+    return WORLD_OK;
+}
+
+static world_error_t deserialize_u16_layer_v3(
+    FILE *file,
+    world_state_t *world,
+    const char *layer_name_text,
+    world_layer_type_t type)
+{
+    char layer_name[16];
+    uint32_t cell_size;
+    uint16_t *values;
+    world_clock_t clock;
+    world_tick_t last_simulation_tick;
+    world_error_t error;
+
+    error = world_io_read_fixed_string(
+        file,
+        layer_name,
+        sizeof(layer_name));
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (memcmp(
+            layer_name,
+            layer_name_text,
+            strlen(layer_name_text)) != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    error = read_clock(
+        file,
+        &clock);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_read_uint64_be(
+        file,
+        &last_simulation_tick);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = read_u16_values(
+        file,
+        world,
+        &cell_size,
+        &values);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_append_u16_layer(
+        world,
+        type,
+        clock,
+        last_simulation_tick,
+        cell_size,
+        values);
+
+    if (error != WORLD_OK) {
+        free(values);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
 static world_error_t deserialize_heightmap_v3(
     FILE *file,
     world_state_t *world)
@@ -716,7 +873,7 @@ static world_error_t load_one_layer_v3(
             layer_type,
             WORLD_LAYER_TYPE_HUMIDITY,
             strlen(WORLD_LAYER_TYPE_HUMIDITY)) == 0) {
-        return deserialize_u8_layer_v3(
+        return deserialize_u16_layer_v3(
             file,
             world,
             WORLD_LAYER_NAME_HUMIDITY,
@@ -1098,6 +1255,102 @@ static world_error_t write_u8_layer(
     return WORLD_OK;
 }
 
+static world_error_t write_u16_layer(
+    FILE *file,
+    const char *type,
+    const char *name,
+    const world_clock_t *clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    const uint16_t *values,
+    uint64_t cell_count)
+{
+    uint64_t i;
+    world_error_t error;
+
+    if (values == NULL || cell_size != WORLD_U8_CELL_MM) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    if (fwrite(
+            WORLD_LAYER_MAGIC,
+            1,
+            sizeof(WORLD_LAYER_MAGIC) - 1,
+            file) != sizeof(WORLD_LAYER_MAGIC) - 1) {
+        return WORLD_ERROR_FILE;
+    }
+
+    error = write_padded_string(
+        file,
+        type,
+        16);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = write_padded_string(
+        file,
+        name,
+        16);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = write_clock(
+        file,
+        clock);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_write_uint64_be(
+        file,
+        last_simulation_tick);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (fwrite(
+            WORLD_LAYER_STORAGE_U16,
+            1,
+            sizeof(WORLD_LAYER_STORAGE_U16) - 1,
+            file) != sizeof(WORLD_LAYER_STORAGE_U16) - 1) {
+        return WORLD_ERROR_FILE;
+    }
+
+    error = world_io_write_uint32_be(
+        file,
+        cell_size);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_write_int32_be(
+        file,
+        0);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    for (i = 0; i < cell_count; i++) {
+        error = world_io_write_uint16_be(
+            file,
+            values[i]);
+
+        if (error != WORLD_OK) {
+            return error;
+        }
+    }
+
+    return WORLD_OK;
+}
+
 static world_error_t write_layer_v3(
     FILE *file,
     const world_state_t *world,
@@ -1192,17 +1445,36 @@ static world_error_t write_layer_v3(
                 cell_count);
         }
 
-        case WORLD_LAYER_HUMIDITY:
+        case WORLD_LAYER_HUMIDITY: {
+            const world_u16_payload_t *grid = layer->payload;
+
+            error = dense_cell_count(
+                world,
+                grid->cell_size,
+                &cell_count);
+
+            if (error != WORLD_OK) {
+                return error;
+            }
+
+            return write_u16_layer(
+                file,
+                WORLD_LAYER_TYPE_HUMIDITY,
+                WORLD_LAYER_NAME_HUMIDITY,
+                &layer->clock,
+                layer->last_simulation_tick,
+                grid->cell_size,
+                grid->published,
+                cell_count);
+        }
+
         case WORLD_LAYER_FERTILITY:
         case WORLD_LAYER_GRASS: {
             const world_u8_payload_t *grid = layer->payload;
             const char *type_name;
             const char *layer_name;
 
-            if (layer->type == WORLD_LAYER_HUMIDITY) {
-                type_name = WORLD_LAYER_TYPE_HUMIDITY;
-                layer_name = WORLD_LAYER_NAME_HUMIDITY;
-            } else if (layer->type == WORLD_LAYER_FERTILITY) {
+            if (layer->type == WORLD_LAYER_FERTILITY) {
                 type_name = WORLD_LAYER_TYPE_FERTILITY;
                 layer_name = WORLD_LAYER_NAME_FERTILITY;
             } else {

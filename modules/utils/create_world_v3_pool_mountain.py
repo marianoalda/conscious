@@ -10,7 +10,8 @@ Create World Format v3 file data/world-pool-mountain-v3.bin.
     Mountain:           cosine dome, 4 m above the plain, radius 2.5 m
     Pool:               circular cut, 1 m radius, 50 cm below the plain
     Static water:       50 cm deep in that cut, dry everywhere else
-    Diffuse light:      one cell covering the whole 20 m × 20 m world
+    Diffuse light:      one cell covering the whole 20 m × 20 m world,
+                        simulated every 2^18 ms (CLK_0018, about 4.4 min)
 
 Elevations use the format rule
 
@@ -208,7 +209,7 @@ def create_world(output_path, offsets):
             file,
             LIGHT_TYPE,
             LIGHT_NAME,
-            CLOCK_EVERY_TICK,
+            CLOCK_DIFFLIGHT,
             LIGHT_CELL_MM,
             LIGHT_MAX_IRRADIANCE,
             [0],
@@ -261,7 +262,8 @@ def main():
     print(f"  Water:     {WATER_POOL_DEPTH_MM} mm in the pool "
           f"({wet} cells)")
     print(f"  Daylight:  1 cell of {LIGHT_CELL_MM} mm, "
-          f"max {LIGHT_MAX_IRRADIANCE} W/m2")
+          f"max {LIGHT_MAX_IRRADIANCE} W/m2, "
+          f"{CLOCK_DIFFLIGHT.decode()} (2^18 ms)")
 
 
 if __name__ == "__main__":

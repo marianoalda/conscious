@@ -6,9 +6,10 @@ Add humidity, fertility, and grass to the pool world.
 Reads data/world-pool-mountain-v3.bin and writes
 data/world-po-mo-fer-hu-gr-v3.bin. The source file is not modified.
 
-Humidity and fertility are 10 cm grids of zeros. Grass is the same
-grid: 255 at the pool edge and inside it, falling linearly to 0 at
-5 m outside that edge. All three use storage ST_8 and clock CLK_0016.
+Humidity is a 10 cm grid of uint16 zeros (storage ST16). Fertility
+is a 10 cm grid of uint8 zeros. Grass is the same uint8 grid: 255 at
+the pool edge and inside it, falling linearly to 0 at 5 m outside
+that edge. All three use clock CLK_0016.
 
 The pool matches create_world_v3_pool_mountain.py: centre 13.6 m east
 and 10.0 m north, radius 1 m.
@@ -25,6 +26,7 @@ from pathlib import Path
 
 LAYER_MAGIC = b"_LYR"
 STORAGE_U8 = b"ST_8"
+STORAGE_U16 = b"ST16"
 CLOCK_EVERY_MINUTE = b"CLK_0016"
 CELL_SIZE_MM = 100
 
@@ -67,7 +69,10 @@ def layer_block(type_name, layer_name, columns, rows):
     block += padded(layer_name, 16)
     block += CLOCK_EVERY_MINUTE
     block += struct.pack(">Q", 0)
-    block += STORAGE_U8
+    if type_name == b"TYPE_HUMIDITY":
+        block += STORAGE_U16
+    else:
+        block += STORAGE_U8
     block += struct.pack(">I", CELL_SIZE_MM)
     block += struct.pack(">i", 0)
 
@@ -77,6 +82,8 @@ def layer_block(type_name, layer_name, columns, rows):
             for column in range(columns):
                 values[row * columns + column] = grass_height(column, row)
         block += values
+    elif type_name == b"TYPE_HUMIDITY":
+        block += bytes(columns * rows * 2)
     else:
         block += bytes(columns * rows)
     return block
