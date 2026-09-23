@@ -11,7 +11,7 @@ OBJECTS = $(SOURCES:src/%.c=build/%.o)
 all: $(TARGET)
 
 $(TARGET): $(OBJECTS)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ -lm
 
 build/%.o: src/%.c
 	@mkdir -p build

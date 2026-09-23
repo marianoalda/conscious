@@ -180,6 +180,10 @@ static void world_free_layer(world_layer_t *layer)
             world_staticwater_payload_t *water = layer->payload;
 
             free(water->values);
+        } else if (layer->type == WORLD_LAYER_DIFFLIGHT) {
+            world_difflight_payload_t *light = layer->payload;
+
+            free(light->values);
         }
 
         free(layer->payload);
@@ -313,6 +317,42 @@ world_error_t world_append_staticwater_layer(
     error = world_append_layer(
         world,
         WORLD_LAYER_STATICWATER,
+        clock,
+        last_simulation_tick,
+        payload);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
+world_error_t world_append_difflight_layer(
+    world_state_t *world,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    uint32_t max_irradiance,
+    uint32_t *values)
+{
+    world_difflight_payload_t *payload;
+    world_error_t error;
+
+    payload = calloc(1, sizeof(*payload));
+
+    if (payload == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    payload->cell_size = cell_size;
+    payload->max_irradiance = max_irradiance;
+    payload->values = values;
+
+    error = world_append_layer(
+        world,
+        WORLD_LAYER_DIFFLIGHT,
         clock,
         last_simulation_tick,
         payload);

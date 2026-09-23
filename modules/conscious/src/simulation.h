@@ -3,11 +3,16 @@
 
 #include "world.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
 typedef struct simulation simulation_t;
 
 int simulation_init(
     simulation_t **simulation,
-    world_state_t *world);
+    world_state_t *world,
+    bool step_delay_set,
+    uint64_t step_delay_us);
 
 int simulation_start(simulation_t *simulation);
 

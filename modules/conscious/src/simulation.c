@@ -1,8 +1,10 @@
 #include "simulation.h"
 #include "world.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -24,6 +26,8 @@ struct simulation {
     world_tick_t world_tick;
     bool stop_armed;
     world_tick_t stop_tick;
+    bool step_delay_set;
+    uint64_t step_delay_us;
 
     bool terminate_requested;
     bool thread_started;
@@ -37,7 +41,84 @@ static void simulate_heightmap(
     (void)tick;
 }
 
+/*
+ * Fraction of diffuse daylight at an absolute world tick.
+ * Tick 0 is 00:00. The curve is 0 at night, and a half sine
+ * from 06:00 through 12:00 to 18:00.
+ */
+static double day_12h_night_12h(world_tick_t tick)
+{
+    const world_tick_t milliseconds_per_day = 86400000ULL;
+    const world_tick_t dawn = 21600000ULL;
+    const world_tick_t dusk = 64800000ULL;
+    const world_tick_t daylight = 43200000ULL;
+    world_tick_t time_of_day;
+    double angle;
+
+    time_of_day = tick % milliseconds_per_day;
+
+    if (time_of_day <= dawn || time_of_day >= dusk) {
+        return 0.0;
+    }
+
+    angle = 3.14159265358979323846 *
+        (double)(time_of_day - dawn) /
+        (double)daylight;
+
+    return sin(angle);
+}
+
+static void simulate_difflight(
+    world_state_t *world,
+    world_layer_t *layer,
+    world_tick_t tick)
+{
+    world_difflight_payload_t *light;
+    double fraction;
+    double scaled;
+    uint32_t irradiance;
+    uint64_t cell_count;
+    uint64_t i;
+
+    if (world == NULL ||
+        layer == NULL ||
+        layer->payload == NULL) {
+        return;
+    }
+
+    light = layer->payload;
+
+    if (light->values == NULL || light->cell_size == 0) {
+        return;
+    }
+
+    if (world->width % light->cell_size != 0 ||
+        world->depth % light->cell_size != 0) {
+        return;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / light->cell_size) *
+        (uint64_t)(world->depth / light->cell_size);
+
+    fraction = day_12h_night_12h(tick);
+    scaled = fraction * (double)light->max_irradiance;
+
+    if (scaled <= 0.0) {
+        irradiance = 0;
+    } else if (scaled >= (double)UINT32_MAX) {
+        irradiance = UINT32_MAX;
+    } else {
+        irradiance = (uint32_t)llround(scaled);
+    }
+
+    for (i = 0; i < cell_count; i++) {
+        light->values[i] = irradiance;
+    }
+}
+
 static void simulate_layer(
+    world_state_t *world,
     world_layer_t *layer,
     world_tick_t tick)
 {
@@ -47,6 +128,10 @@ static void simulate_layer(
             break;
 
         case WORLD_LAYER_STATICWATER:
+            break;
+
+        case WORLD_LAYER_DIFFLIGHT:
+            simulate_difflight(world, layer, tick);
             break;
     }
 
@@ -82,6 +167,8 @@ static void simulate_step(simulation_t *simulation)
     world_tick_t tick;
     uint32_t i;
     struct timespec duration;
+    uint64_t seconds;
+    uint64_t remainder_us;
 
     world = simulation->world;
     tick = simulation->world_tick;
@@ -94,18 +181,22 @@ static void simulate_step(simulation_t *simulation)
                 continue;
             }
 
-            simulate_layer(layer, tick);
+            simulate_layer(world, layer, tick);
         }
     }
 
     /*
-     * To avoid the tick rolling at full
-     * speed while not really simulating
-     * anything, we use a 1ms timer
+     * Optional wall-clock pause. Absent from the configuration,
+     * the step does not wait.
      */
-    duration.tv_sec = 0;
-    duration.tv_nsec = 1000000L; /* 1 ms */
+    if (!simulation->step_delay_set) {
+        return;
+    }
 
+    seconds = simulation->step_delay_us / 1000000ULL;
+    remainder_us = simulation->step_delay_us % 1000000ULL;
+    duration.tv_sec = (time_t)seconds;
+    duration.tv_nsec = (long)(remainder_us * 1000ULL);
     nanosleep(&duration, NULL);
 }
 
@@ -165,7 +256,9 @@ static void *simulation_run(void *arg)
 
 int simulation_init(
     simulation_t **simulation,
-    world_state_t *world)
+    world_state_t *world,
+    bool step_delay_set,
+    uint64_t step_delay_us)
 {
     simulation_t *new_simulation;
 
@@ -194,6 +287,8 @@ int simulation_init(
 
     new_simulation->world = world;
     new_simulation->world_tick = world->age;
+    new_simulation->step_delay_set = step_delay_set;
+    new_simulation->step_delay_us = step_delay_us;
 
     *simulation = new_simulation;
 

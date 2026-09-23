@@ -9,8 +9,13 @@
  * that covers its own footprint and can tilt. The quad is split by the
  * diagonal from its southwest corner to its northeast corner.
  *
- * Shade = diffuse + direct * max(0, N · L), clamped to [0, 1].
- * L points toward a light in the northeast, above the horizon.
+ * Daylight is the world's diffuse-light cell divided by its maximum.
+ * It fills the shade from the command-line diffuse up to full day, and it
+ * scales the directional term. At night only the command-line diffuse remains,
+ * so a snapshot is still visible. L points toward the northeast, above the horizon.
+ *
+ * Terrain is brown. Static water is cyan at the same luminance, shaded as the
+ * terrain face underneath, and drawn at terrain plus depth.
  */
 
 #include "world.h"
@@ -40,6 +45,8 @@ typedef struct {
     uint32_t corners_x;
     uint32_t corners_y;
     vec3 *corners;
+    float *corner_water_m;
+    float *cell_water_m;
     float span_m;
 } mesh_t;
 
@@ -51,6 +58,7 @@ typedef struct {
     float azimuth;
     float elevation;
     float diffuse;
+    float daylight;
     float direct;
     float pan_step;
 } view_t;
@@ -68,6 +76,16 @@ static int last_y;
 static const float light_x = 0.45f;
 static const float light_y = 0.25f;
 static const float light_z = 0.86f;
+static const float ground_red = 0.50f;
+static const float ground_green = 0.31f;
+static const float ground_blue = 0.16f;
+/*
+ * Cyan scaled to the ground luminance (0.2126 R + 0.7152 G + 0.0722 B),
+ * so a water face is as bright as that face would be in brown.
+ */
+static const float water_red = 0.106f;
+static const float water_green = 0.399f;
+static const float water_blue = 0.436f;
 
 static void die(const char *message)
 {
@@ -82,8 +100,8 @@ static void usage(void)
         "Usage: heightmap-view WORLD DIFFUSE DIRECT\n"
         "\n"
         "WORLD     Conscious world file\n"
-        "DIFFUSE   base grayscale, added on every face\n"
-        "DIRECT    weight of the directional light\n"
+        "DIFFUSE   light that remains at night, from 0 to 1\n"
+        "DIRECT    weight of the directional light, scaled by daylight\n"
         "\n"
         "Mouse wheel zooms. Drag with the left button to orbit.\n"
         "Arrow keys move across the world. Esc quits.\n");
@@ -128,6 +146,66 @@ static const world_heightmap_payload_t *find_heightmap(const world_state_t *worl
         }
     }
     return NULL;
+}
+
+static const world_staticwater_payload_t *find_staticwater(
+    const world_state_t *world)
+{
+    uint32_t i;
+
+    for (i = 0; i < world->layer_count; i++) {
+        const world_layer_t *layer = world->layers[i];
+
+        if (layer != NULL &&
+            layer->type == WORLD_LAYER_STATICWATER &&
+            layer->payload != NULL) {
+            return layer->payload;
+        }
+    }
+    return NULL;
+}
+
+static float file_daylight(const world_state_t *world)
+{
+    const world_difflight_payload_t *light = NULL;
+    uint32_t i;
+    uint64_t cell_count;
+    uint64_t cell;
+    double sum;
+
+    for (i = 0; i < world->layer_count; i++) {
+        const world_layer_t *layer = world->layers[i];
+
+        if (layer != NULL &&
+            layer->type == WORLD_LAYER_DIFFLIGHT &&
+            layer->payload != NULL) {
+            light = layer->payload;
+            break;
+        }
+    }
+
+    if (light == NULL ||
+        light->values == NULL ||
+        light->max_irradiance == 0 ||
+        light->cell_size == 0 ||
+        world->width % light->cell_size != 0 ||
+        world->depth % light->cell_size != 0) {
+        return 0.0f;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / light->cell_size) *
+        (uint64_t)(world->depth / light->cell_size);
+    if (cell_count == 0) {
+        return 0.0f;
+    }
+
+    sum = 0.0;
+    for (cell = 0; cell < cell_count; cell++) {
+        sum += (double)light->values[cell];
+    }
+
+    return (float)((sum / (double)cell_count) / (double)light->max_irradiance);
 }
 
 static double cell_elevation_m(
@@ -211,6 +289,74 @@ static int build_mesh(const world_state_t *world)
         }
     }
 
+    mesh.cell_water_m = calloc(
+        (size_t)mesh.cell_width * mesh.cell_depth,
+        sizeof(*mesh.cell_water_m));
+    mesh.corner_water_m = calloc(
+        (size_t)mesh.corners_x * mesh.corners_y,
+        sizeof(*mesh.corner_water_m));
+    if (mesh.cell_water_m == NULL || mesh.corner_water_m == NULL) {
+        free(mesh.cell_water_m);
+        free(mesh.corner_water_m);
+        free(mesh.corners);
+        mesh.cell_water_m = NULL;
+        mesh.corner_water_m = NULL;
+        mesh.corners = NULL;
+        return -1;
+    }
+
+    {
+        const world_staticwater_payload_t *water = find_staticwater(world);
+
+        if (water != NULL &&
+            water->values != NULL &&
+            water->cell_size == heightmap->cell_size) {
+            for (row = 0; row < mesh.cell_depth; row++) {
+                for (column = 0; column < mesh.cell_width; column++) {
+                    uint32_t index = row * mesh.cell_width + column;
+                    double depth_mm =
+                        (double)water->min_depth +
+                        (double)water->values[index];
+
+                    if (depth_mm < 0.0) {
+                        depth_mm = 0.0;
+                    }
+                    mesh.cell_water_m[index] = (float)(depth_mm / 1000.0);
+                }
+            }
+
+            for (row = 0; row < mesh.corners_y; row++) {
+                for (column = 0; column < mesh.corners_x; column++) {
+                    double sum = 0.0;
+                    int count = 0;
+                    int d_row;
+                    int d_column;
+
+                    for (d_row = -1; d_row <= 0; d_row++) {
+                        for (d_column = -1; d_column <= 0; d_column++) {
+                            int cell_column = (int)column + d_column;
+                            int cell_row = (int)row + d_row;
+
+                            if (cell_column < 0 || cell_row < 0 ||
+                                cell_column >= (int)mesh.cell_width ||
+                                cell_row >= (int)mesh.cell_depth) {
+                                continue;
+                            }
+                            sum += mesh.cell_water_m[
+                                (uint32_t)cell_row * mesh.cell_width +
+                                (uint32_t)cell_column];
+                            count++;
+                        }
+                    }
+                    if (count > 0) {
+                        mesh.corner_water_m[row * mesh.corners_x + column] =
+                            (float)(sum / count);
+                    }
+                }
+            }
+        }
+    }
+
     return 0;
 }
 
@@ -236,29 +382,61 @@ static float face_shade(const vec3 *a, const vec3 *b, const vec3 *c)
 
     length = sqrtf(nx * nx + ny * ny + nz * nz);
     if (length == 0.0f) {
-        return clampf(view.diffuse, 0.0f, 1.0f);
-    }
-
-    nx /= length;
-    ny /= length;
-    nz /= length;
-    incidence = nx * light_x + ny * light_y + nz * light_z;
-    if (incidence < 0.0f) {
         incidence = 0.0f;
+    } else {
+        nx /= length;
+        ny /= length;
+        nz /= length;
+        incidence = nx * light_x + ny * light_y + nz * light_z;
+        if (incidence < 0.0f) {
+            incidence = 0.0f;
+        }
     }
 
-    shade = view.diffuse + view.direct * incidence;
+    /*
+     * The argument is the night floor. The file fills the rest of the
+     * range, and the directional lamp only contributes while the sun is up.
+     * Otherwise a bright argument already saturates every face.
+     */
+    shade = view.diffuse + view.daylight * (1.0f - view.diffuse);
+    shade += view.direct * incidence * view.daylight;
     return clampf(shade, 0.0f, 1.0f);
 }
 
-static void draw_triangle(const vec3 *a, const vec3 *b, const vec3 *c)
+static void emit_triangle(
+    const vec3 *a,
+    const vec3 *b,
+    const vec3 *c,
+    float shade,
+    float red,
+    float green,
+    float blue)
 {
-    float shade = face_shade(a, b, c);
-
-    glColor3f(shade, shade, shade);
+    glColor3f(shade * red, shade * green, shade * blue);
     glVertex3fv(&a->x);
     glVertex3fv(&b->x);
     glVertex3fv(&c->x);
+}
+
+static void draw_triangle(
+    const vec3 *a,
+    const vec3 *b,
+    const vec3 *c,
+    float red,
+    float green,
+    float blue)
+{
+    emit_triangle(a, b, c, face_shade(a, b, c), red, green, blue);
+}
+
+static vec3 water_corner(uint32_t column, uint32_t row)
+{
+    const vec3 *corner = corner_at(column, row);
+    vec3 raised;
+
+    raised = *corner;
+    raised.z += mesh.corner_water_m[row * mesh.corners_x + column];
+    return raised;
 }
 
 static void draw_mesh(void)
@@ -275,11 +453,52 @@ static void draw_mesh(void)
             const vec3 *northwest = corner_at(column, row + 1);
 
             /* Diagonal from southwest to northeast. */
-            draw_triangle(southwest, southeast, northeast);
-            draw_triangle(southwest, northeast, northwest);
+            draw_triangle(
+                southwest, southeast, northeast,
+                ground_red, ground_green, ground_blue);
+            draw_triangle(
+                southwest, northeast, northwest,
+                ground_red, ground_green, ground_blue);
         }
     }
     glEnd();
+
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+    glBegin(GL_TRIANGLES);
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            vec3 southwest;
+            vec3 southeast;
+            vec3 northeast;
+            vec3 northwest;
+
+            if (mesh.cell_water_m[row * mesh.cell_width + column] <= 0.0f) {
+                continue;
+            }
+
+            southwest = water_corner(column, row);
+            southeast = water_corner(column + 1, row);
+            northeast = water_corner(column + 1, row + 1);
+            northwest = water_corner(column, row + 1);
+            emit_triangle(
+                &southwest, &southeast, &northeast,
+                face_shade(
+                    corner_at(column, row),
+                    corner_at(column + 1, row),
+                    corner_at(column + 1, row + 1)),
+                water_red, water_green, water_blue);
+            emit_triangle(
+                &southwest, &northeast, &northwest,
+                face_shade(
+                    corner_at(column, row),
+                    corner_at(column + 1, row + 1),
+                    corner_at(column, row + 1)),
+                water_red, water_green, water_blue);
+        }
+    }
+    glEnd();
+    glDisable(GL_POLYGON_OFFSET_FILL);
 }
 
 static void camera_eye(float *x, float *y, float *z)
@@ -530,6 +749,7 @@ int main(int argc, char **argv)
 
     view.diffuse = parse_light(argv[2], "DIFFUSE");
     view.direct = parse_light(argv[3], "DIRECT");
+    view.daylight = 0.0f;
 
     error = world_load(argv[1], &world);
     if (error != WORLD_OK) {
@@ -540,6 +760,8 @@ int main(int argc, char **argv)
         world_destroy(&world);
         return EXIT_FAILURE;
     }
+    view.daylight = clampf(file_daylight(&world), 0.0f, 1.0f);
+    printf("Daylight: %.3f\n", view.daylight);
     if (build_mesh(&world) != 0) {
         world_destroy(&world);
         die("world has no heightmap");
@@ -564,6 +786,8 @@ int main(int argc, char **argv)
     open_window();
     event_loop();
 
+    free(mesh.cell_water_m);
+    free(mesh.corner_water_m);
     free(mesh.corners);
     return EXIT_SUCCESS;
 }

@@ -11,6 +11,8 @@
 #define WORLD_LAYER_NAME_HEIGHTMAP "LYR_HEIGHTMAP"
 #define WORLD_LAYER_TYPE_STATICWATER "TYPE_STATICWATER"
 #define WORLD_LAYER_NAME_STATICWATER "LYR_STATICWATER"
+#define WORLD_LAYER_TYPE_DIFFLIGHT "TYPE_DIFFLIGHT"
+#define WORLD_LAYER_NAME_DIFFLIGHT "LYR_DIFFLIGHT"
 #define WORLD_LAYER_EVOLUTION_NONE "EV_N"
 #define WORLD_LAYER_STORAGE_DENSE "ST_D"
 
@@ -23,6 +25,7 @@
 /* Distances are millimetres. One world tick is one millisecond. */
 #define WORLD_DISTANCE_UNIT "mm"
 #define WORLD_TICK_UNIT "ms"
+#define WORLD_IRRADIANCE_UNIT "W/m2"
 
 typedef uint64_t world_tick_t;
 
@@ -52,7 +55,8 @@ typedef enum {
 
 typedef enum {
     WORLD_LAYER_HEIGHTMAP,
-    WORLD_LAYER_STATICWATER
+    WORLD_LAYER_STATICWATER,
+    WORLD_LAYER_DIFFLIGHT
 } world_layer_type_t;
 
 typedef struct {
@@ -66,6 +70,12 @@ typedef struct {
     int32_t min_depth;
     uint32_t *values;
 } world_staticwater_payload_t;
+
+typedef struct {
+    uint32_t cell_size;
+    uint32_t max_irradiance;
+    uint32_t *values;
+} world_difflight_payload_t;
 
 typedef struct {
     world_layer_type_t type;

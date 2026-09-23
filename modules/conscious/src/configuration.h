@@ -14,6 +14,8 @@ typedef struct {
     bool save_state_on_shutdown;
     state_on_start_t state_on_start;
     uint64_t incremental_steps;
+    bool step_delay_set;
+    uint64_t step_delay_us;
     char world_file[PATH_MAX];
 
 } configuration_t;

@@ -9,6 +9,8 @@ Create World Format v3 file data/world-pool-mountain-v3.bin.
     Plain:              1 m, and at least 5 m from every edge
     Mountain:           cosine dome, 4 m above the plain, radius 2.5 m
     Pool:               circular cut, 1 m radius, 50 cm below the plain
+    Static water:       50 cm deep in that cut, dry everywhere else
+    Diffuse light:      one cell covering the whole 20 m × 20 m world
 
 Elevations use the format rule
 
@@ -57,10 +59,20 @@ FLAT_MARGIN_M = 5.0
 
 MODULARITY = b"MODULAR"
 LAYER_MAGIC = b"_LYR"
-LAYER_TYPE = b"TYPE_HEIGHTMAP"
-LAYER_NAME = b"LYR_HEIGHTMAP"
-LAYER_CLOCK = b"CLK_NOEV"
 LAYER_STORAGE = b"ST_D"
+HEIGHTMAP_TYPE = b"TYPE_HEIGHTMAP"
+HEIGHTMAP_NAME = b"LYR_HEIGHTMAP"
+WATER_TYPE = b"TYPE_STATICWATER"
+WATER_NAME = b"LYR_STATICWATER"
+LIGHT_TYPE = b"TYPE_DIFFLIGHT"
+LIGHT_NAME = b"LYR_DIFFLIGHT"
+CLOCK_NOEV = b"CLK_NOEV"
+CLOCK_EVERY_TICK = b"CLK_0000"
+
+WATER_MIN_DEPTH_MM = 0
+WATER_POOL_DEPTH_MM = 500
+LIGHT_CELL_MM = WORLD_WIDTH_MM
+LIGHT_MAX_IRRADIANCE = 1000
 
 WORLD_AGE = 0
 LAST_SIMULATION_TICK = 0
@@ -145,8 +157,27 @@ def cell_offsets(cell_width, cell_depth):
     return offsets
 
 
+def write_dense_layer(file, layer_type, layer_name, clock, cell_size, minimum, values):
+    """Write one dense version 3 layer. minimum is min_height, min_depth, or max irradiance."""
+    file.write(LAYER_MAGIC)
+    write_fixed_string(file, layer_type, 16)
+    write_fixed_string(file, layer_name, 16)
+    file.write(clock)
+    write_uint64(file, LAST_SIMULATION_TICK)
+    file.write(LAYER_STORAGE)
+    write_uint32(file, cell_size)
+    write_int32(file, minimum)
+    for value in values:
+        write_uint32(file, value)
+
+
 def create_world(output_path, offsets):
-    """Write a version 3 world whose heightmap is offsets."""
+    """Write heightmap, static water, and one diffuse-light cell."""
+    water = [
+        WATER_POOL_DEPTH_MM if offset == 0 else 0
+        for offset in offsets
+    ]
+
     with output_path.open("wb") as file:
         file.write(WORLD_MAGIC)
         write_uint32(file, WORLD_VERSION)
@@ -155,25 +186,42 @@ def create_world(output_path, offsets):
         write_fixed_string(file, MODULARITY, 8)
         write_uint64(file, WORLD_AGE)
 
-        file.write(LAYER_MAGIC)
-        write_fixed_string(file, LAYER_TYPE, 16)
-        write_fixed_string(file, LAYER_NAME, 16)
-        file.write(LAYER_CLOCK)
-        write_uint64(file, LAST_SIMULATION_TICK)
-        file.write(LAYER_STORAGE)
+        write_dense_layer(
+            file,
+            HEIGHTMAP_TYPE,
+            HEIGHTMAP_NAME,
+            CLOCK_NOEV,
+            CELL_SIZE_MM,
+            MIN_HEIGHT_MM,
+            offsets,
+        )
+        write_dense_layer(
+            file,
+            WATER_TYPE,
+            WATER_NAME,
+            CLOCK_NOEV,
+            CELL_SIZE_MM,
+            WATER_MIN_DEPTH_MM,
+            water,
+        )
+        write_dense_layer(
+            file,
+            LIGHT_TYPE,
+            LIGHT_NAME,
+            CLOCK_EVERY_TICK,
+            LIGHT_CELL_MM,
+            LIGHT_MAX_IRRADIANCE,
+            [0],
+        )
 
-        write_uint32(file, CELL_SIZE_MM)
-        write_int32(file, MIN_HEIGHT_MM)
-
-        for offset in offsets:
-            write_uint32(file, offset)
+    return water
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description=(
-            "Create a 20 m modular world with a 4 m mountain "
-            "and a 50 cm circular pool."
+            "Create a 20 m modular world with a 4 m mountain, "
+            "a 50 cm pool of static water, and one daylight cell."
         ),
     )
     parser.add_argument(
@@ -194,11 +242,12 @@ def main():
     cell_width = WORLD_WIDTH_MM // CELL_SIZE_MM
     cell_depth = WORLD_DEPTH_MM // CELL_SIZE_MM
     offsets = cell_offsets(cell_width, cell_depth)
-    create_world(output_path, offsets)
+    water = create_world(output_path, offsets)
 
     plain = sum(offset == PLAIN_OFFSET_MM for offset in offsets)
     pool = sum(offset == 0 for offset in offsets)
     peak = max(offsets)
+    wet = sum(depth == WATER_POOL_DEPTH_MM for depth in water)
 
     print(f"Created World Format v{WORLD_VERSION}: {output_path}")
     print(f"  World:     {WORLD_WIDTH_MM / 1000:g} m × "
@@ -209,6 +258,10 @@ def main():
           f"({plain} cells)")
     print(f"  Summit:    {MIN_HEIGHT_MM + peak} mm")
     print(f"  Pool floor:{MIN_HEIGHT_MM} mm ({pool} cells)")
+    print(f"  Water:     {WATER_POOL_DEPTH_MM} mm in the pool "
+          f"({wet} cells)")
+    print(f"  Daylight:  1 cell of {LIGHT_CELL_MM} mm, "
+          f"max {LIGHT_MAX_IRRADIANCE} W/m2")
 
 
 if __name__ == "__main__":

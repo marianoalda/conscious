@@ -37,6 +37,9 @@ static const char *layer_type_name(world_layer_type_t type)
         case WORLD_LAYER_STATICWATER:
             return WORLD_LAYER_TYPE_STATICWATER;
 
+        case WORLD_LAYER_DIFFLIGHT:
+            return WORLD_LAYER_TYPE_DIFFLIGHT;
+
         default:
             return "unknown";
     }
@@ -131,6 +134,20 @@ static void print_loaded_world(const world_state_t *world)
                 "      min_depth: %" PRId32 " %s\n",
                 water->min_depth,
                 WORLD_DISTANCE_UNIT);
+        }
+
+        if (layer->type == WORLD_LAYER_DIFFLIGHT &&
+            layer->payload != NULL) {
+            const world_difflight_payload_t *light = layer->payload;
+
+            printf(
+                "      cell_size: %" PRIu32 " %s\n",
+                light->cell_size,
+                WORLD_DISTANCE_UNIT);
+            printf(
+                "      max_irradiance: %" PRIu32 " %s\n",
+                light->max_irradiance,
+                WORLD_IRRADIANCE_UNIT);
         }
     }
 }
@@ -356,6 +373,29 @@ static int parse_configuration(FILE *config_file, configuration_t *configuration
             configuration->incremental_steps = steps;
         }
 
+        else if (strcmp(variable, "step_delay_us") == 0) {
+            char *end_pointer;
+            unsigned long long delay_us;
+
+            errno = 0;
+            delay_us = strtoull(value, &end_pointer, 10);
+
+            if (value[0] == '-' ||
+                errno != 0 ||
+                end_pointer == value ||
+                *end_pointer != '\0' ||
+                delay_us == 0) {
+                fprintf(stderr,
+                        "Error: Invalid value for '%s' at line %u: '%s'. "
+                        "Expected a positive integer.\n",
+                        variable, line_number, value);
+                return -1;
+            }
+
+            configuration->step_delay_set = true;
+            configuration->step_delay_us = delay_us;
+        }
+
         else if (strcmp(variable, "world_file") == 0) {
             if (strlen(value) >= sizeof(configuration->world_file)) {
                 fprintf(stderr,
@@ -505,6 +545,8 @@ int main(int argc, char **argv)
         .save_state_on_shutdown = true,
         .state_on_start = SIMULATE,
         .incremental_steps = 3600000,
+        .step_delay_set = false,
+        .step_delay_us = 0,
         .world_file = "world.bin"
     };
 
@@ -668,7 +710,11 @@ int main(int argc, char **argv)
     bool incremental_active = false;
     world_tick_t incremental_stop_tick = 0;
 
-    if (simulation_init(&simulation, &world) != 0) {
+    if (simulation_init(
+            &simulation,
+            &world,
+            configuration.step_delay_set,
+            configuration.step_delay_us) != 0) {
         fprintf(stderr, "Error: Unable to initialize simulation.\n");
         world_destroy(&world);
         return EXIT_FAILURE;

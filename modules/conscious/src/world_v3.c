@@ -408,6 +408,84 @@ static world_error_t deserialize_staticwater_v3(
     return WORLD_OK;
 }
 
+static world_error_t deserialize_difflight_v3(
+    FILE *file,
+    world_state_t *world)
+{
+    char layer_name[16];
+
+    uint32_t cell_size;
+    int32_t max_irradiance;
+    uint32_t *values;
+
+    world_clock_t clock;
+    world_tick_t last_simulation_tick;
+    world_error_t error;
+
+    error = world_io_read_fixed_string(
+        file,
+        layer_name,
+        sizeof(layer_name));
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (memcmp(
+            layer_name,
+            WORLD_LAYER_NAME_DIFFLIGHT,
+            strlen(WORLD_LAYER_NAME_DIFFLIGHT)) != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    error = read_clock(
+        file,
+        &clock);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_read_uint64_be(
+        file,
+        &last_simulation_tick);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = read_dense_values(
+        file,
+        world,
+        &cell_size,
+        &max_irradiance,
+        &values);
+
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (max_irradiance < 0) {
+        free(values);
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    error = world_append_difflight_layer(
+        world,
+        clock,
+        last_simulation_tick,
+        cell_size,
+        (uint32_t)max_irradiance,
+        values);
+
+    if (error != WORLD_OK) {
+        free(values);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
 static world_error_t read_next_layer_marker(
     FILE *file,
     int *present)
@@ -471,6 +549,15 @@ static world_error_t load_one_layer_v3(
             WORLD_LAYER_TYPE_STATICWATER,
             sizeof(layer_type)) == 0) {
         return deserialize_staticwater_v3(
+            file,
+            world);
+    }
+
+    if (memcmp(
+            layer_type,
+            WORLD_LAYER_TYPE_DIFFLIGHT,
+            strlen(WORLD_LAYER_TYPE_DIFFLIGHT)) == 0) {
+        return deserialize_difflight_v3(
             file,
             world);
     }
@@ -797,6 +884,34 @@ static world_error_t write_layer_v3(
                 water->cell_size,
                 water->min_depth,
                 water->values,
+                cell_count);
+        }
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            const world_difflight_payload_t *light = layer->payload;
+
+            if (light->max_irradiance > (uint32_t)INT32_MAX) {
+                return WORLD_ERROR_INVALID_FORMAT;
+            }
+
+            error = dense_cell_count(
+                world,
+                light->cell_size,
+                &cell_count);
+
+            if (error != WORLD_OK) {
+                return error;
+            }
+
+            return write_dense_layer(
+                file,
+                WORLD_LAYER_TYPE_DIFFLIGHT,
+                WORLD_LAYER_NAME_DIFFLIGHT,
+                &layer->clock,
+                layer->last_simulation_tick,
+                light->cell_size,
+                (int32_t)light->max_irradiance,
+                light->values,
                 cell_count);
         }
     }
