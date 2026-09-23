@@ -108,6 +108,12 @@ One wake shows the same arithmetic before it has settled into that field. With g
 
 The rounding cuts the far tail. At full sun and with no grass, one `CLK_0016` wake removes a unit only when `0.1 · H · 65536/3600000` reaches 0.5, which is `H ≥ 275`. Below that the wake removes nothing, so a trace past the grass ring lasts longer than the steady curve. At height 255 the same threshold is 550.
 
+## Viewer
+
+The heightmap viewer paints humidity blue, as a sheet hung from the heightmap's stored zero (`min_height`), not from the terrain surface. The sheet grows downward. A cell at 65535 reaches down by the world's greatest elevation, `min_height` plus the largest stored offset. A cell at 0 is not drawn. The terrain is in front of that sheet when the camera is above, so the humidity shows only from below. Dragging the view down past the horizon orbits under the world.
+
+The shipped `world-po-mo-fer-hu-gr-v3.bin` starts the pool at saturation and the soil at 0. A dry cell draws nothing, so the blue halo appears only after the simulation has run, or when a snapshot such as `world-po-mo-fer-hu-gr-v3-day.bin` is loaded.
+
 ## Dependencies
 
 | Other layer       | Role in this function                                      |

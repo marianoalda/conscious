@@ -18,6 +18,12 @@
  * height divided by 255, so bare ground stays brown and full height covers it.
  * Static water is cyan at the same luminance, shaded as the terrain face
  * underneath, and drawn at terrain plus depth.
+ *
+ * Humidity is a second sheet, blue, hung from the heightmap's stored
+ * zero (min_height), not from the terrain surface. It grows downward.
+ * A saturated cell (65535) reaches down by the world's greatest
+ * elevation. The sheet stays at or below that zero, so the terrain
+ * hides it from above. The orbit continues below the horizon.
  */
 
 #include "world.h"
@@ -50,6 +56,9 @@ typedef struct {
     float *corner_water_m;
     float *cell_water_m;
     float *cell_grass_alpha;
+    float *corner_humidity_m; /* metres below the heightmap zero */
+    float datum_m;            /* elevation of stored height 0 */
+    float humidity_reach_m;   /* greatest elevation, the saturated depth */
     float span_m;
 } mesh_t;
 
@@ -92,6 +101,9 @@ static const float water_blue = 0.436f;
 static const float grass_red = 0.18f;
 static const float grass_green = 0.48f;
 static const float grass_blue = 0.12f;
+static const float humidity_red = 0.12f;
+static const float humidity_green = 0.22f;
+static const float humidity_blue = 0.72f;
 
 static void die(const char *message)
 {
@@ -109,7 +121,8 @@ static void usage(void)
         "DIFFUSE   light that remains at night, from 0 to 1\n"
         "DIRECT    weight of the directional light, scaled by daylight\n"
         "\n"
-        "Mouse wheel zooms. Drag with the left button to orbit.\n"
+        "Mouse wheel zooms. Drag with the left button to orbit,\n"
+        "above or below the world.\n"
         "Arrow keys move across the world. Esc quits.\n");
 }
 
@@ -147,6 +160,22 @@ static const world_heightmap_payload_t *find_heightmap(const world_state_t *worl
 
         if (layer != NULL &&
             layer->type == WORLD_LAYER_HEIGHTMAP &&
+            layer->payload != NULL) {
+            return layer->payload;
+        }
+    }
+    return NULL;
+}
+
+static const world_u16_payload_t *find_humidity(const world_state_t *world)
+{
+    uint32_t i;
+
+    for (i = 0; i < world->layer_count; i++) {
+        const world_layer_t *layer = world->layers[i];
+
+        if (layer != NULL &&
+            layer->type == WORLD_LAYER_HUMIDITY &&
             layer->payload != NULL) {
             return layer->payload;
         }
@@ -278,6 +307,8 @@ static int build_mesh(const world_state_t *world)
     mesh.span_m = (float)fmax(
         (double)world->width / 1000.0,
         (double)world->depth / 1000.0);
+    mesh.datum_m = (float)((double)heightmap->min_height / 1000.0);
+    mesh.humidity_reach_m = mesh.datum_m;
 
     for (row = 0; row < mesh.corners_y; row++) {
         for (column = 0; column < mesh.corners_x; column++) {
@@ -300,11 +331,16 @@ static int build_mesh(const world_state_t *world)
                         cell_row >= (int)mesh.cell_depth) {
                         continue;
                     }
-                    sum += cell_elevation_m(
+                    double elevation = cell_elevation_m(
                         heightmap,
                         mesh.cell_width,
                         (uint32_t)cell_column,
                         (uint32_t)cell_row);
+
+                    sum += elevation;
+                    if ((float)elevation > mesh.humidity_reach_m) {
+                        mesh.humidity_reach_m = (float)elevation;
+                    }
                     count++;
                 }
             }
@@ -321,18 +357,27 @@ static int build_mesh(const world_state_t *world)
     mesh.cell_grass_alpha = calloc(
         (size_t)mesh.cell_width * mesh.cell_depth,
         sizeof(*mesh.cell_grass_alpha));
+    mesh.corner_humidity_m = calloc(
+        (size_t)mesh.corners_x * mesh.corners_y,
+        sizeof(*mesh.corner_humidity_m));
     if (mesh.cell_water_m == NULL ||
         mesh.corner_water_m == NULL ||
-        mesh.cell_grass_alpha == NULL) {
+        mesh.cell_grass_alpha == NULL ||
+        mesh.corner_humidity_m == NULL) {
         free(mesh.cell_water_m);
         free(mesh.corner_water_m);
         free(mesh.cell_grass_alpha);
+        free(mesh.corner_humidity_m);
         free(mesh.corners);
         mesh.cell_water_m = NULL;
         mesh.corner_water_m = NULL;
         mesh.cell_grass_alpha = NULL;
+        mesh.corner_humidity_m = NULL;
         mesh.corners = NULL;
         return -1;
+    }
+    if (mesh.humidity_reach_m < 0.0f) {
+        mesh.humidity_reach_m = 0.0f;
     }
 
     {
@@ -425,6 +470,94 @@ static int build_mesh(const world_state_t *world)
         }
     }
 
+    {
+        const world_u16_payload_t *humidity = find_humidity(world);
+
+        if (humidity != NULL &&
+            humidity->published != NULL &&
+            humidity->cell_size != 0 &&
+            mesh.humidity_reach_m > 0.0f &&
+            world->width % humidity->cell_size == 0 &&
+            world->depth % humidity->cell_size == 0) {
+            uint32_t humidity_columns = world->width / humidity->cell_size;
+            uint32_t humidity_rows = world->depth / humidity->cell_size;
+            float *cell_depth = calloc(
+                (size_t)mesh.cell_width * mesh.cell_depth,
+                sizeof(*cell_depth));
+
+            if (cell_depth == NULL) {
+                free(mesh.cell_water_m);
+                free(mesh.corner_water_m);
+                free(mesh.cell_grass_alpha);
+                free(mesh.corner_humidity_m);
+                free(mesh.corners);
+                mesh.cell_water_m = NULL;
+                mesh.corner_water_m = NULL;
+                mesh.cell_grass_alpha = NULL;
+                mesh.corner_humidity_m = NULL;
+                mesh.corners = NULL;
+                return -1;
+            }
+
+            for (row = 0; row < mesh.cell_depth; row++) {
+                for (column = 0; column < mesh.cell_width; column++) {
+                    uint32_t east_mm =
+                        column * heightmap->cell_size +
+                        heightmap->cell_size / 2;
+                    uint32_t north_mm =
+                        row * heightmap->cell_size +
+                        heightmap->cell_size / 2;
+                    uint32_t humidity_column = east_mm / humidity->cell_size;
+                    uint32_t humidity_row = north_mm / humidity->cell_size;
+                    uint16_t value;
+
+                    if (humidity_column >= humidity_columns) {
+                        humidity_column = humidity_columns - 1;
+                    }
+                    if (humidity_row >= humidity_rows) {
+                        humidity_row = humidity_rows - 1;
+                    }
+                    value = humidity->published[
+                        humidity_row * humidity_columns + humidity_column];
+                    cell_depth[row * mesh.cell_width + column] = (float)(
+                        ((double)value / 65535.0) *
+                        (double)mesh.humidity_reach_m);
+                }
+            }
+
+            for (row = 0; row < mesh.corners_y; row++) {
+                for (column = 0; column < mesh.corners_x; column++) {
+                    double sum = 0.0;
+                    int count = 0;
+                    int d_row;
+                    int d_column;
+
+                    for (d_row = -1; d_row <= 0; d_row++) {
+                        for (d_column = -1; d_column <= 0; d_column++) {
+                            int cell_column = (int)column + d_column;
+                            int cell_row = (int)row + d_row;
+
+                            if (cell_column < 0 || cell_row < 0 ||
+                                cell_column >= (int)mesh.cell_width ||
+                                cell_row >= (int)mesh.cell_depth) {
+                                continue;
+                            }
+                            sum += cell_depth[
+                                (uint32_t)cell_row * mesh.cell_width +
+                                (uint32_t)cell_column];
+                            count++;
+                        }
+                    }
+                    if (count > 0) {
+                        mesh.corner_humidity_m[row * mesh.corners_x + column] =
+                            (float)(sum / count);
+                    }
+                }
+            }
+            free(cell_depth);
+        }
+    }
+
     return 0;
 }
 
@@ -506,6 +639,19 @@ static vec3 water_corner(uint32_t column, uint32_t row)
     raised = *corner;
     raised.z += mesh.corner_water_m[row * mesh.corners_x + column];
     return raised;
+}
+
+/* Same footprint as the terrain corner, hung from the heightmap zero. */
+static vec3 humidity_corner(uint32_t column, uint32_t row)
+{
+    const vec3 *corner = corner_at(column, row);
+    vec3 lowered;
+
+    lowered.x = corner->x;
+    lowered.y = corner->y;
+    lowered.z = mesh.datum_m -
+        mesh.corner_humidity_m[row * mesh.corners_x + column];
+    return lowered;
 }
 
 static void draw_mesh(void)
@@ -607,6 +753,43 @@ static void draw_mesh(void)
     }
     glEnd();
     glDisable(GL_POLYGON_OFFSET_FILL);
+
+    glBegin(GL_TRIANGLES);
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            float southwest_depth =
+                mesh.corner_humidity_m[row * mesh.corners_x + column];
+            float southeast_depth =
+                mesh.corner_humidity_m[row * mesh.corners_x + column + 1];
+            float northeast_depth =
+                mesh.corner_humidity_m[(row + 1) * mesh.corners_x + column + 1];
+            float northwest_depth =
+                mesh.corner_humidity_m[(row + 1) * mesh.corners_x + column];
+            vec3 southwest;
+            vec3 southeast;
+            vec3 northeast;
+            vec3 northwest;
+
+            if (southwest_depth <= 0.0f &&
+                southeast_depth <= 0.0f &&
+                northeast_depth <= 0.0f &&
+                northwest_depth <= 0.0f) {
+                continue;
+            }
+
+            southwest = humidity_corner(column, row);
+            southeast = humidity_corner(column + 1, row);
+            northeast = humidity_corner(column + 1, row + 1);
+            northwest = humidity_corner(column, row + 1);
+            draw_triangle(
+                &southwest, &southeast, &northeast,
+                humidity_red, humidity_green, humidity_blue);
+            draw_triangle(
+                &southwest, &northeast, &northwest,
+                humidity_red, humidity_green, humidity_blue);
+        }
+    }
+    glEnd();
 }
 
 static void camera_eye(float *x, float *y, float *z)
@@ -662,7 +845,7 @@ static void clamp_view(void)
         minimum = 0.2f;
     }
     view.distance = clampf(view.distance, minimum, maximum);
-    view.elevation = clampf(view.elevation, 0.04f, 1.45f);
+    view.elevation = clampf(view.elevation, -1.45f, 1.45f);
 }
 
 static void pan(float east, float north)
@@ -897,6 +1080,7 @@ int main(int argc, char **argv)
     free(mesh.cell_water_m);
     free(mesh.corner_water_m);
     free(mesh.cell_grass_alpha);
+    free(mesh.corner_humidity_m);
     free(mesh.corners);
     return EXIT_SUCCESS;
 }

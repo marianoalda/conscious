@@ -8,7 +8,7 @@ The shipped grass world starts at 255 on the pool and inside it, and falls in a 
 
 ## Evolution
 
-The layer was added empty, then filled with that ring so the viewer could show it. The viewer paints the cell green with opacity `height / 255` over the brown terrain. Water is drawn afterwards, so grass under the pool is hidden.
+The layer was added empty, then filled with that ring so the viewer could show it. The [heightmap viewer](../../modules/heightmap-view/README.md) paints the cell green with opacity `height / 255` over the brown terrain. Water is drawn afterwards, so grass under the pool is hidden. Humidity is drawn last, as a blue sheet below the heightmap zero.
 
 The trophic sketch, not a function definition: grass would be born, grow, and die from fertility, humidity, nearby grass, and radiation. Growth would spend fertility. Death would return more biomass than growth had taken, because the plant builds mass from water, air, and light. The height is both the stored state and the stand-in for that biomass. A later herbivore would lower the height without triggering the death return. The cell stays one byte. A daily step is enough for a change of a few millimetres; the slow diffusion that needs more than eight bits is fertility, not grass.
 
