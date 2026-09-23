@@ -187,6 +187,13 @@ static void world_free_layer(world_layer_t *layer)
 
             free(light->published);
             free(light->pending);
+        } else if (layer->type == WORLD_LAYER_HUMIDITY ||
+                   layer->type == WORLD_LAYER_FERTILITY ||
+                   layer->type == WORLD_LAYER_GRASS) {
+            world_u8_payload_t *grid = layer->payload;
+
+            free(grid->published);
+            free(grid->pending);
         }
 
         free(layer->payload);
@@ -264,13 +271,15 @@ const world_layer_t *world_find_layer(
 static world_error_t allocate_pending_grid(
     const world_state_t *world,
     uint32_t cell_size,
-    const uint32_t *published,
-    uint32_t **pending)
+    const void *published,
+    size_t value_size,
+    void **pending)
 {
     uint64_t cell_count;
     size_t bytes;
 
     if (published == NULL ||
+        value_size == 0 ||
         cell_size == 0 ||
         world->width == 0 ||
         world->depth == 0 ||
@@ -283,11 +292,11 @@ static world_error_t allocate_pending_grid(
         (uint64_t)(world->width / cell_size) *
         (uint64_t)(world->depth / cell_size);
 
-    if (cell_count > SIZE_MAX / sizeof(uint32_t)) {
+    if (cell_count > SIZE_MAX / value_size) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    bytes = (size_t)cell_count * sizeof(uint32_t);
+    bytes = (size_t)cell_count * value_size;
     *pending = malloc(bytes);
 
     if (*pending == NULL) {
@@ -327,7 +336,8 @@ world_error_t world_append_heightmap_layer(
         world,
         cell_size,
         published,
-        &payload->pending);
+        sizeof(uint32_t),
+        (void **)&payload->pending);
 
     if (error != WORLD_OK) {
         free(payload);
@@ -375,7 +385,8 @@ world_error_t world_append_staticwater_layer(
         world,
         cell_size,
         published,
-        &payload->pending);
+        sizeof(uint32_t),
+        (void **)&payload->pending);
 
     if (error != WORLD_OK) {
         free(payload);
@@ -423,7 +434,8 @@ world_error_t world_append_difflight_layer(
         world,
         cell_size,
         published,
-        &payload->pending);
+        sizeof(uint32_t),
+        (void **)&payload->pending);
 
     if (error != WORLD_OK) {
         free(payload);
@@ -433,6 +445,69 @@ world_error_t world_append_difflight_layer(
     error = world_append_layer(
         world,
         WORLD_LAYER_DIFFLIGHT,
+        clock,
+        last_simulation_tick,
+        payload);
+
+    if (error != WORLD_OK) {
+        free(payload->pending);
+        free(payload);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
+/*
+ * Humidity, fertility, and grass. cell_size is 10 cm.
+ * On success the layer owns published and a pending copy.
+ * On failure the caller still owns published.
+ */
+world_error_t world_append_u8_layer(
+    world_state_t *world,
+    world_layer_type_t type,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    uint8_t *published)
+{
+    world_u8_payload_t *payload;
+    world_error_t error;
+
+    if (type != WORLD_LAYER_HUMIDITY &&
+        type != WORLD_LAYER_FERTILITY &&
+        type != WORLD_LAYER_GRASS) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    if (cell_size != WORLD_U8_CELL_MM) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    payload = calloc(1, sizeof(*payload));
+
+    if (payload == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    payload->cell_size = cell_size;
+    payload->published = published;
+
+    error = allocate_pending_grid(
+        world,
+        cell_size,
+        published,
+        sizeof(uint8_t),
+        (void **)&payload->pending);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
+
+    error = world_append_layer(
+        world,
+        type,
         clock,
         last_simulation_tick,
         payload);

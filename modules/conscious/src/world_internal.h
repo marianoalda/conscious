@@ -34,6 +34,14 @@ world_error_t world_append_staticwater_layer(
     int32_t min_depth,
     uint32_t *published);
 
+world_error_t world_append_u8_layer(
+    world_state_t *world,
+    world_layer_type_t type,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    uint8_t *published);
+
 world_error_t world_append_difflight_layer(
     world_state_t *world,
     world_clock_t clock,

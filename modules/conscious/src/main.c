@@ -40,6 +40,15 @@ static const char *layer_type_name(world_layer_type_t type)
         case WORLD_LAYER_DIFFLIGHT:
             return WORLD_LAYER_TYPE_DIFFLIGHT;
 
+        case WORLD_LAYER_HUMIDITY:
+            return WORLD_LAYER_TYPE_HUMIDITY;
+
+        case WORLD_LAYER_FERTILITY:
+            return WORLD_LAYER_TYPE_FERTILITY;
+
+        case WORLD_LAYER_GRASS:
+            return WORLD_LAYER_TYPE_GRASS;
+
         default:
             return "unknown";
     }
@@ -148,6 +157,19 @@ static void print_loaded_world(const world_state_t *world)
                 "      max_irradiance: %" PRIu32 " %s\n",
                 light->max_irradiance,
                 WORLD_IRRADIANCE_UNIT);
+        }
+
+        if ((layer->type == WORLD_LAYER_HUMIDITY ||
+             layer->type == WORLD_LAYER_FERTILITY ||
+             layer->type == WORLD_LAYER_GRASS) &&
+            layer->payload != NULL) {
+            const world_u8_payload_t *grid = layer->payload;
+
+            printf(
+                "      cell_size: %" PRIu32 " %s\n",
+                grid->cell_size,
+                WORLD_DISTANCE_UNIT);
+            printf("      value: uint8\n");
         }
     }
 }

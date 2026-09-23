@@ -13,8 +13,18 @@
 #define WORLD_LAYER_NAME_STATICWATER "LYR_STATICWATER"
 #define WORLD_LAYER_TYPE_DIFFLIGHT "TYPE_DIFFLIGHT"
 #define WORLD_LAYER_NAME_DIFFLIGHT "LYR_DIFFLIGHT"
+#define WORLD_LAYER_TYPE_HUMIDITY "TYPE_HUMIDITY"
+#define WORLD_LAYER_NAME_HUMIDITY "LYR_HUMIDITY"
+#define WORLD_LAYER_TYPE_FERTILITY "TYPE_FERTILITY"
+#define WORLD_LAYER_NAME_FERTILITY "LYR_FERTILITY"
+#define WORLD_LAYER_TYPE_GRASS "TYPE_GRASS"
+#define WORLD_LAYER_NAME_GRASS "LYR_GRASS"
 #define WORLD_LAYER_EVOLUTION_NONE "EV_N"
 #define WORLD_LAYER_STORAGE_DENSE "ST_D"
+#define WORLD_LAYER_STORAGE_U8 "ST_8"
+
+/* Humidity, fertility, and grass use a 10 cm cell. */
+#define WORLD_U8_CELL_MM 100
 
 #define WORLD_MODULARITY_CLOSED_VALUE "CLOSED"
 #define WORLD_MODULARITY_MODULAR_VALUE "MODULAR"
@@ -57,7 +67,10 @@ typedef enum {
 typedef enum {
     WORLD_LAYER_HEIGHTMAP,      /* terrain elevation */
     WORLD_LAYER_STATICWATER,   /* water depth that does not move */
-    WORLD_LAYER_DIFFLIGHT       /* diffuse daylight irradiance */
+    WORLD_LAYER_DIFFLIGHT,      /* diffuse daylight irradiance */
+    WORLD_LAYER_HUMIDITY,       /* 0 dry, 255 saturated */
+    WORLD_LAYER_FERTILITY,      /* 0 sterile, 255 maximum fertility */
+    WORLD_LAYER_GRASS           /* millimetres of height, 0 bare, 255 maximum */
 } world_layer_type_t;
 
 /*
@@ -87,6 +100,19 @@ typedef struct {
     uint32_t *published;        /* current irradiance, W/m², not an offset */
     uint32_t *pending;
 } world_difflight_payload_t;
+
+/*
+ * Shared by humidity, fertility, and grass. Each cell is one uint8.
+ * Humidity: 0 is no water in the soil, 255 is saturated.
+ * Fertility: 0 is sterile, 255 is the maximum.
+ * Grass: the value is millimetres of height, from 0 to 255.
+ * cell_size is WORLD_U8_CELL_MM.
+ */
+typedef struct {
+    uint32_t cell_size;
+    uint8_t *published;
+    uint8_t *pending;
+} world_u8_payload_t;
 
 typedef struct {
     world_layer_type_t type;

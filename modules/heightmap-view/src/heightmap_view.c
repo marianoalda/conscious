@@ -14,8 +14,10 @@
  * scales the directional term. At night only the command-line diffuse remains,
  * so a snapshot is still visible. L points toward the northeast, above the horizon.
  *
- * Terrain is brown. Static water is cyan at the same luminance, shaded as the
- * terrain face underneath, and drawn at terrain plus depth.
+ * Terrain is brown. Grass is green on that same face: its opacity is its
+ * height divided by 255, so bare ground stays brown and full height covers it.
+ * Static water is cyan at the same luminance, shaded as the terrain face
+ * underneath, and drawn at terrain plus depth.
  */
 
 #include "world.h"
@@ -47,6 +49,7 @@ typedef struct {
     vec3 *corners;
     float *corner_water_m;
     float *cell_water_m;
+    float *cell_grass_alpha;
     float span_m;
 } mesh_t;
 
@@ -86,6 +89,9 @@ static const float ground_blue = 0.16f;
 static const float water_red = 0.106f;
 static const float water_green = 0.399f;
 static const float water_blue = 0.436f;
+static const float grass_red = 0.18f;
+static const float grass_green = 0.48f;
+static const float grass_blue = 0.12f;
 
 static void die(const char *message)
 {
@@ -141,6 +147,22 @@ static const world_heightmap_payload_t *find_heightmap(const world_state_t *worl
 
         if (layer != NULL &&
             layer->type == WORLD_LAYER_HEIGHTMAP &&
+            layer->payload != NULL) {
+            return layer->payload;
+        }
+    }
+    return NULL;
+}
+
+static const world_u8_payload_t *find_grass(const world_state_t *world)
+{
+    uint32_t i;
+
+    for (i = 0; i < world->layer_count; i++) {
+        const world_layer_t *layer = world->layers[i];
+
+        if (layer != NULL &&
+            layer->type == WORLD_LAYER_GRASS &&
             layer->payload != NULL) {
             return layer->payload;
         }
@@ -296,12 +318,19 @@ static int build_mesh(const world_state_t *world)
     mesh.corner_water_m = calloc(
         (size_t)mesh.corners_x * mesh.corners_y,
         sizeof(*mesh.corner_water_m));
-    if (mesh.cell_water_m == NULL || mesh.corner_water_m == NULL) {
+    mesh.cell_grass_alpha = calloc(
+        (size_t)mesh.cell_width * mesh.cell_depth,
+        sizeof(*mesh.cell_grass_alpha));
+    if (mesh.cell_water_m == NULL ||
+        mesh.corner_water_m == NULL ||
+        mesh.cell_grass_alpha == NULL) {
         free(mesh.cell_water_m);
         free(mesh.corner_water_m);
+        free(mesh.cell_grass_alpha);
         free(mesh.corners);
         mesh.cell_water_m = NULL;
         mesh.corner_water_m = NULL;
+        mesh.cell_grass_alpha = NULL;
         mesh.corners = NULL;
         return -1;
     }
@@ -353,6 +382,44 @@ static int build_mesh(const world_state_t *world)
                         mesh.corner_water_m[row * mesh.corners_x + column] =
                             (float)(sum / count);
                     }
+                }
+            }
+        }
+    }
+
+    {
+        const world_u8_payload_t *grass = find_grass(world);
+
+        if (grass != NULL &&
+            grass->published != NULL &&
+            grass->cell_size != 0 &&
+            world->width % grass->cell_size == 0 &&
+            world->depth % grass->cell_size == 0) {
+            uint32_t grass_columns = world->width / grass->cell_size;
+            uint32_t grass_rows = world->depth / grass->cell_size;
+
+            for (row = 0; row < mesh.cell_depth; row++) {
+                for (column = 0; column < mesh.cell_width; column++) {
+                    uint32_t east_mm =
+                        column * heightmap->cell_size +
+                        heightmap->cell_size / 2;
+                    uint32_t north_mm =
+                        row * heightmap->cell_size +
+                        heightmap->cell_size / 2;
+                    uint32_t grass_column = east_mm / grass->cell_size;
+                    uint32_t grass_row = north_mm / grass->cell_size;
+                    uint8_t height;
+
+                    if (grass_column >= grass_columns) {
+                        grass_column = grass_columns - 1;
+                    }
+                    if (grass_row >= grass_rows) {
+                        grass_row = grass_rows - 1;
+                    }
+                    height = grass->published[
+                        grass_row * grass_columns + grass_column];
+                    mesh.cell_grass_alpha[row * mesh.cell_width + column] =
+                        (float)height / 255.0f;
                 }
             }
         }
@@ -411,9 +478,10 @@ static void emit_triangle(
     float shade,
     float red,
     float green,
-    float blue)
+    float blue,
+    float alpha)
 {
-    glColor3f(shade * red, shade * green, shade * blue);
+    glColor4f(shade * red, shade * green, shade * blue, alpha);
     glVertex3fv(&a->x);
     glVertex3fv(&b->x);
     glVertex3fv(&c->x);
@@ -427,7 +495,7 @@ static void draw_triangle(
     float green,
     float blue)
 {
-    emit_triangle(a, b, c, face_shade(a, b, c), red, green, blue);
+    emit_triangle(a, b, c, face_shade(a, b, c), red, green, blue, 1.0f);
 }
 
 static vec3 water_corner(uint32_t column, uint32_t row)
@@ -464,8 +532,45 @@ static void draw_mesh(void)
     }
     glEnd();
 
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(-1.0f, -1.0f);
+    glDepthMask(GL_FALSE);
+    glBegin(GL_TRIANGLES);
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            float alpha = mesh.cell_grass_alpha[row * mesh.cell_width + column];
+            const vec3 *southwest;
+            const vec3 *southeast;
+            const vec3 *northeast;
+            const vec3 *northwest;
+
+            if (alpha <= 0.0f) {
+                continue;
+            }
+
+            southwest = corner_at(column, row);
+            southeast = corner_at(column + 1, row);
+            northeast = corner_at(column + 1, row + 1);
+            northwest = corner_at(column, row + 1);
+            emit_triangle(
+                southwest, southeast, northeast,
+                face_shade(southwest, southeast, northeast),
+                grass_red, grass_green, grass_blue,
+                alpha);
+            emit_triangle(
+                southwest, northeast, northwest,
+                face_shade(southwest, northeast, northwest),
+                grass_red, grass_green, grass_blue,
+                alpha);
+        }
+    }
+    glEnd();
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+
+    glPolygonOffset(-2.0f, -2.0f);
     glBegin(GL_TRIANGLES);
     for (row = 0; row < mesh.cell_depth; row++) {
         for (column = 0; column < mesh.cell_width; column++) {
@@ -488,14 +593,16 @@ static void draw_mesh(void)
                     corner_at(column, row),
                     corner_at(column + 1, row),
                     corner_at(column + 1, row + 1)),
-                water_red, water_green, water_blue);
+                water_red, water_green, water_blue,
+                1.0f);
             emit_triangle(
                 &southwest, &northeast, &northwest,
                 face_shade(
                     corner_at(column, row),
                     corner_at(column + 1, row + 1),
                     corner_at(column, row + 1)),
-                water_red, water_green, water_blue);
+                water_red, water_green, water_blue,
+                1.0f);
         }
     }
     glEnd();
@@ -789,6 +896,7 @@ int main(int argc, char **argv)
 
     free(mesh.cell_water_m);
     free(mesh.corner_water_m);
+    free(mesh.cell_grass_alpha);
     free(mesh.corners);
     return EXIT_SUCCESS;
 }

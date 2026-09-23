@@ -129,13 +129,15 @@ static void simulate_difflight(
  */
 static void layer_grids(
     world_layer_t *layer,
-    uint32_t **published,
-    uint32_t **pending,
-    uint32_t *cell_size)
+    void **published,
+    void **pending,
+    uint32_t *cell_size,
+    size_t *value_size)
 {
     *published = NULL;
     *pending = NULL;
     *cell_size = 0;
+    *value_size = 0;
 
     if (layer == NULL || layer->payload == NULL) {
         return;
@@ -148,6 +150,7 @@ static void layer_grids(
             *published = heightmap->published;
             *pending = heightmap->pending;
             *cell_size = heightmap->cell_size;
+            *value_size = sizeof(uint32_t);
             break;
         }
 
@@ -157,6 +160,7 @@ static void layer_grids(
             *published = water->published;
             *pending = water->pending;
             *cell_size = water->cell_size;
+            *value_size = sizeof(uint32_t);
             break;
         }
 
@@ -166,6 +170,19 @@ static void layer_grids(
             *published = light->published;
             *pending = light->pending;
             *cell_size = light->cell_size;
+            *value_size = sizeof(uint32_t);
+            break;
+        }
+
+        case WORLD_LAYER_HUMIDITY:
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS: {
+            world_u8_payload_t *grid = layer->payload;
+
+            *published = grid->published;
+            *pending = grid->pending;
+            *cell_size = grid->cell_size;
+            *value_size = sizeof(uint8_t);
             break;
         }
     }
@@ -174,15 +191,17 @@ static void layer_grids(
 /* Keep pending equal to published when a step changes only some cells. */
 static void mirror_published(const world_state_t *world, world_layer_t *layer)
 {
-    uint32_t *published;
-    uint32_t *pending;
+    void *published;
+    void *pending;
     uint32_t cell_size;
+    size_t value_size;
     uint64_t cell_count;
 
-    layer_grids(layer, &published, &pending, &cell_size);
+    layer_grids(layer, &published, &pending, &cell_size, &value_size);
 
     if (published == NULL ||
         pending == NULL ||
+        value_size == 0 ||
         cell_size == 0 ||
         world->width % cell_size != 0 ||
         world->depth % cell_size != 0) {
@@ -192,19 +211,21 @@ static void mirror_published(const world_state_t *world, world_layer_t *layer)
     cell_count =
         (uint64_t)(world->width / cell_size) *
         (uint64_t)(world->depth / cell_size);
-    memcpy(pending, published, (size_t)cell_count * sizeof(uint32_t));
+    memcpy(pending, published, (size_t)cell_count * value_size);
 }
 
 /* Make the tick's grid visible. Called after every due layer has read. */
 static void publish_layer(world_layer_t *layer)
 {
-    uint32_t *published;
-    uint32_t *pending;
+    void *published;
+    void *pending;
     uint32_t cell_size;
-    uint32_t *previous;
+    size_t value_size;
+    void *previous;
 
-    layer_grids(layer, &published, &pending, &cell_size);
+    layer_grids(layer, &published, &pending, &cell_size, &value_size);
     (void)cell_size;
+    (void)value_size;
 
     if (published == NULL || pending == NULL) {
         return;
@@ -236,7 +257,33 @@ static void publish_layer(world_layer_t *layer)
             light->pending = previous;
             break;
         }
+
+        case WORLD_LAYER_HUMIDITY:
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS: {
+            world_u8_payload_t *grid = layer->payload;
+
+            grid->published = grid->pending;
+            grid->pending = previous;
+            break;
+        }
     }
+}
+
+/*
+ * Humidity, fertility, and grass will read one another from the
+ * published grids. This prototype does not change any cell.
+ * The step mirrors pending from published before the call and
+ * publishes pending after every due layer has been read.
+ */
+static void simulate_coupled_u8(
+    world_state_t *world,
+    world_layer_t *layer,
+    world_tick_t tick)
+{
+    (void)world;
+    (void)layer;
+    (void)tick;
 }
 
 static void simulate_layer(
@@ -254,6 +301,12 @@ static void simulate_layer(
 
         case WORLD_LAYER_DIFFLIGHT:
             simulate_difflight(world, layer, tick);
+            break;
+
+        case WORLD_LAYER_HUMIDITY:
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS:
+            simulate_coupled_u8(world, layer, tick);
             break;
     }
 
