@@ -805,6 +805,7 @@ int main(int argc, char **argv)
             struct timespec current_time;
             double elapsed_seconds;
             double ticks_per_second;
+            double time_factor;
 
             current_world_tick = simulation_get_world_tick(simulation);
 
@@ -822,26 +823,34 @@ int main(int argc, char **argv)
                     elapsed_seconds;
             }
 
+            /*
+             * One tick is one millisecond of world time, so the rate in
+             * ms/s divided by 1000 is how many times faster than real time.
+             */
+            time_factor = ticks_per_second / 1000.0;
+
             previous_world_tick = current_world_tick;
             previous_time = current_time;
 
             if (incremental_active) {
                 printf(
-                    "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
+                    "\r[SIMULATING]  %.1f %s/s  x%.1f  age: %" PRIu64 " %s  "
                     "until: %" PRIu64 " %s  "
                     "[p] pause  [q] shutdown\033[K",
                     ticks_per_second,
                     WORLD_TICK_UNIT,
+                    time_factor,
                     current_world_tick,
                     WORLD_TICK_UNIT,
                     incremental_stop_tick,
                     WORLD_TICK_UNIT);
             } else {
                 printf(
-                    "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
+                    "\r[SIMULATING]  %.1f %s/s  x%.1f  age: %" PRIu64 " %s  "
                     "[p] pause  [q] shutdown\033[K",
                     ticks_per_second,
                     WORLD_TICK_UNIT,
+                    time_factor,
                     current_world_tick,
                     WORLD_TICK_UNIT);
             }

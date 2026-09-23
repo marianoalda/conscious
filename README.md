@@ -79,9 +79,11 @@ The simulation runs in its own thread. `main` can pause it and wait until the cu
 From `modules/conscious`:
 
 ```text
-[SIMULATING]  … ms/s  age: … ms   [p] pause  [q] shutdown
+[SIMULATING]  … ms/s  x…  age: … ms   [p] pause  [q] shutdown
 [ON HOLD]     [s] resume  [i] increment  [w] snapshot  [q] shutdown
 ```
+
+The rate is world milliseconds per second of wall time. The factor `x` is that rate divided by 1000: at 10000 ms/s the world runs at x10 relative to real time.
 
 `p` suspends the engine. `s` resumes it. `q` shuts down. `i`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `w`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken. Files under `modules/data` whose name ends in a dot and digits are ignored by git.
 
