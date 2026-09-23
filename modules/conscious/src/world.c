@@ -585,6 +585,105 @@ world_error_t world_append_u8_layer(
     return WORLD_OK;
 }
 
+bool world_cell_at(
+    uint32_t world_width,
+    uint32_t world_depth,
+    uint32_t cell_size,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    uint32_t *index)
+{
+    uint32_t columns;
+    uint32_t rows;
+    uint32_t column;
+    uint32_t row;
+
+    if (index == NULL ||
+        cell_size == 0 ||
+        east_mm >= world_width ||
+        north_mm >= world_depth ||
+        world_width % cell_size != 0 ||
+        world_depth % cell_size != 0) {
+        return false;
+    }
+
+    columns = world_width / cell_size;
+    rows = world_depth / cell_size;
+    column = east_mm / cell_size;
+    row = north_mm / cell_size;
+
+    if (column >= columns || row >= rows) {
+        return false;
+    }
+
+    *index = row * columns + column;
+    return true;
+}
+
+/*
+ * Fold one axis onto a modular edge. count is the number of cells
+ * on that axis. The C remainder keeps the sign of the dividend, so
+ * a negative step is brought back into the range by adding count.
+ */
+static void world_wrap_axis(
+    int64_t value,
+    uint32_t count,
+    uint32_t *wrapped)
+{
+    int64_t span;
+
+    span = (int64_t)count;
+    value %= span;
+
+    if (value < 0) {
+        value += span;
+    }
+
+    *wrapped = (uint32_t)value;
+}
+
+bool world_neighbor(
+    const world_state_t *world,
+    uint32_t columns,
+    uint32_t rows,
+    uint32_t column,
+    uint32_t row,
+    int delta_column,
+    int delta_row,
+    uint32_t *index)
+{
+    int64_t next_column;
+    int64_t next_row;
+    uint32_t column_index;
+    uint32_t row_index;
+
+    if (world == NULL ||
+        index == NULL ||
+        columns == 0 ||
+        rows == 0) {
+        return false;
+    }
+
+    next_column = (int64_t)column + delta_column;
+    next_row = (int64_t)row + delta_row;
+
+    if (world->modularity == WORLD_MODULARITY_MODULAR) {
+        world_wrap_axis(next_column, columns, &column_index);
+        world_wrap_axis(next_row, rows, &row_index);
+    } else if (next_column < 0 ||
+               next_row < 0 ||
+               (uint64_t)next_column >= (uint64_t)columns ||
+               (uint64_t)next_row >= (uint64_t)rows) {
+        return false;
+    } else {
+        column_index = (uint32_t)next_column;
+        row_index = (uint32_t)next_row;
+    }
+
+    *index = row_index * columns + column_index;
+    return true;
+}
+
 /*******************************
  * Destroy the world state and free any allocated memory.
  */

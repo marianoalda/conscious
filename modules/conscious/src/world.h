@@ -1,6 +1,7 @@
 #ifndef WORLD_H
 #define WORLD_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define WORLD_MAGIC "CWLD"
@@ -62,7 +63,7 @@ typedef struct {
 
 typedef enum {
     WORLD_MODULARITY_CLOSED,    /* edges are borders */
-    WORLD_MODULARITY_MODULAR    /* opposite edges meet; not applied yet */
+    WORLD_MODULARITY_MODULAR    /* opposite edges meet when a layer asks for a neighbour */
 } world_modularity_t;
 
 typedef enum {
@@ -156,5 +157,39 @@ const char *world_error_string(world_error_t error);
 
 /* Free every layer, including both cell buffers. */
 void world_destroy(world_state_t *world);
+
+/*
+ * Index of the cell that contains this point, on a grid of cell_size
+ * that covers the world. Row-major, row times the column count plus
+ * column. The point is in world millimetres from the south-west corner.
+ * Modularity does not apply: a point outside the map has no cell.
+ * index is left unchanged when the function returns false.
+ */
+bool world_cell_at(
+    uint32_t world_width,
+    uint32_t world_depth,
+    uint32_t cell_size,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    uint32_t *index);
+
+/*
+ * Orthogonal neighbour on one layer's grid. columns and rows are
+ * that layer's own counts, because cell sizes differ. The step is
+ * in cells, usually +1 or −1 on a single axis.
+ *
+ * MODULAR folds the step onto the opposite edge, as many times as
+ * the step requires. CLOSED has no cell past the border and returns
+ * false. index is left unchanged when the function returns false.
+ */
+bool world_neighbor(
+    const world_state_t *world,
+    uint32_t columns,
+    uint32_t rows,
+    uint32_t column,
+    uint32_t row,
+    int delta_column,
+    int delta_row,
+    uint32_t *index);
 
 #endif

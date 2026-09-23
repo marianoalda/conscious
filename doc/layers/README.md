@@ -30,7 +30,7 @@ On a tick the engine visits each layer whose clock is due. Static water is never
 
 A layer that is not due keeps the values from its last due tick. Readers still see those values.
 
-`MODULAR` is stored. Wrapping belongs to the simulation, when a function asks for a neighbour. Humidity diffusion wraps. No other function asks.
+`MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity is the only caller today. The flow it computes from that neighbour is its own rule.
 
 ## Dependencies
 
@@ -48,7 +48,7 @@ flowchart LR
   height -.-> water
   water --> humidity
   light --> humidity
-  grass -.-> humidity
+  grass --> humidity
   humidity -.-> grass
   light -.-> grass
   fertility -.-> grass
@@ -62,11 +62,11 @@ The heightmap does not feed the water grid. The viewer, and the meaning of the w
 | Heightmap        | Nothing                                                  | Nothing                                                   |
 | Static water     | Nothing. It does not run.                                | Nothing                                                   |
 | Diffuse daylight | The world age                                            | Nothing. It does not evaporate humidity.                  |
-| Humidity         | Its own grid, static water, published light              | Nothing. Evaporation is its own rule. The grass divisor is pending. |
+| Humidity         | Its own grid, static water, published light, published grass | Nothing. Evaporation is its own rule, scaled by the grass height. |
 | Fertility        | Not defined                                              | Not defined. It is expected to receive grass deltas.     |
 | Grass            | Not defined                                              | Not defined. It is expected to push fertility deltas.    |
 
 Two kinds of coupling are distinct:
 
-* A layer may read a value that the other layer keeps publishing: water depth, irradiance. The reader owns the rule. The other layer does not write into it. Humidity does not read grass yet. The grass divisor that would scale evaporation is pending until grass has a simulation.
+* A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade. The reader owns the rule. The other layer does not write into it. Grass stays at the height stored in the file, because its own function does not change a cell.
 * A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer is designed and is not stored or updated by the engine.

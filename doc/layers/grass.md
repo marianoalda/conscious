@@ -18,6 +18,6 @@ The trophic sketch, not a function definition: grass would be born, grow, and di
 
 ## Dependencies
 
-No implemented function reads or writes this layer. The humidity function will read the published height as a divisor on evaporation when grass has a simulation. That factor is pending and is not applied. Humidity does not change grass.
+Humidity reads the published height as a divisor on evaporation: 1 at height 0 and 0.5 at height 255. Humidity does not change grass. No function writes this layer.
 
 The sketch says grass would read published humidity, published daylight, nearby grass, and fertility including deltas not yet folded. It would push a negative fertility delta when it grows and a positive one when it dies. Those deltas are not defined as numbers.
