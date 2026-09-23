@@ -2,52 +2,144 @@
 
 This is the Conscious Project, a try to investigate if artificial consciousness can arise from proprioception, i.e., integration by a being of a model of itself (and the world itself) in the system that the being uses to interact with its world.
 
+The original statement of that aim is kept in [README.original.md](README.original.md). What follows is the implementation as it stands.
+
+There are no beings yet. The present code is the time engine and the world those beings would inhabit: a quantized terrain, a clock, and a way to suspend the clock and keep the world.
+
 ## Modules
 
-- [conscious (main module and time sync)](modules/conscious/README.md)
+- [conscious](modules/conscious/) — the main module. It owns the process, the operator interface, the world, and the time engine.
 
-## Requirements and architecture brainstorm
+`modules/conscious/README.md` describes an earlier stage of that module. This document is the one that matches the code.
 
-We will start by enumerating some elements that we will need:
-- An open, modular and distributed architecture:
-    - e.g., the world could be implemented in C and be a shared memory segment, and the beings could be written in smalltalk so they can evolve and coexist with other differently-evolved beings in the same engine.
-- Time engine
-    - which allows the world and beings (and other ones) engines to exist synchronizedly.
-    - able to be suspended for debug, accelerated, slowed down, etc.
-- World: is a repository and an engine
-    - probably with several dimensions: not only one object or characteristic in each cell (food and its growth, surface of water, difficulty to walk due to grass growth, etc.).
-    - quantized: in cells, with perhaps different cell size per dimension.
-    - could run based on rules: for example, the grass grows every time tic
-- Beings: is a repository and and engine
-    - object oriented, with own rules
-    - able to evolv in some way in the engine, so different specifimens with different features (DNA) and feature expressions can exist simultaneously
-    - with features as
-        - able to emit messages
-        - basic circuits (thirst, hunger, reproduction, cold...) in the reality and the model
-        - lifecycle (reproduction)
-        - integrated model of the world and of the being itself (not necessarily synchronized)
-        - with surviving instict as the "spark" that keeps them alive
-        - with behaviours that triggers "anomalies", like curiosity, etc.
-- Some kind of snapshot feature of the different repositories/engines
-    - For backup/restore, debug, make reports, be inspected by humans...
-    - That can be used by external tools to "translate to human language" what happens in the world and inside the beings (evolution, "thoughts", analysis of protolanguage...)
-- World console or "control panel": Inspection/interpretation framework:
-    - Allows for suspending, explaining, explain changes between snaps, translating the world, beings, etc.
-    - Real time (graphical or textual to feed IA agents) representation of the state of the world, beings, etc.
-- Debugging capabilities:
-    - Compatible with the distributed and possible heterogeneous paradigm (C, Java, Smalltalk...)
-- Maintaing compatibility by abstraction and layers/interfaces/endpoints
+## Architecture
 
-## Requirements backlog
+One process, three parts:
 
-- How to automate build and execution
-- Graphical representation: world console or "control panel"
-- How to deal with different versions and compatibility amoung engines:
-    - Versions, tags, releases, documenting compatibility and features, requirements...
-- Setup and understanding of the Github issues subsystem.
+```text
+main
+ │
+ ├── world          persistent state
+ │
+ └── simulation     the time engine
+```
+
+`main` owns the lifetime of the simulation. The simulation owns its thread and its synchronization. The world owns the persistent state. The simulation operates on the world; `main` does not see the simulation's internal threads.
+
+The time engine can be suspended. While it runs, one step is one millisecond of world time.
+
+## World
+
+The world is a repository. It is quantized in cells. Distances are millimetres. One world tick is one millisecond.
+
+In memory the world holds an array of layers. Each layer has its metadata and a pointer to its payload. On disk, version 3 stores that sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change.
+
+A cell stores an offset above the layer's minimum height:
+
+```text
+elevation = min_height + height_value
+```
+
+A layer clock says when that layer is simulated:
+
+* `CLK_NOEV` — the layer is static;
+* `CLK_` followed by an exponent — the layer is simulated every `2^exponent` milliseconds.
+
+The heightmap shipped with the current worlds is `CLK_NOEV`. The step walks the array and runs only the layers that are due on that tick. The heightmap has no evolution rules yet, so a static layer is skipped. The step still waits 1 ms, so the clock does not run away while nothing is being simulated.
+
+The world also stores whether it is `CLOSED` or `MODULAR`. That property is saved and loaded. The engine does not yet join opposite edges.
+
+### File format
+
+The world file is self-describing. Magic `CWLD`, then a version. Older versions are still read. `world_serialize()` writes version 3 only.
+
+| Version | What it stores                                      |
+| ------- | --------------------------------------------------- |
+| 0       | Magic and version                                   |
+| 1       | Dimensions and one dense heightmap                  |
+| 2       | Modularity of the world, and a clock on the layer   |
+| 3       | World age, and the layer's last simulation tick     |
+
+The specification is in [doc/world-format](doc/world-format/README.md).
+
+### Files used in development
+
+`modules/conscious/config/conscious-dev.cfg` always names `world.bin`. That name stays fixed. The file is a hard link to the world under test.
+
+Today `modules/data/world.bin` and `modules/data/world-v3-ramp.bin` are the same file: a 10 m × 10 m ramp. `modules/data/world-v3-mound.bin` is another version 3 world, a mound 2 m above a flat border, generated by [modules/utils/create_world_v3_mound.py](modules/utils/create_world_v3_mound.py).
+
+When the world structure changes, a new file is produced, either by a script or by loading an older world and writing a snapshot. The old `world.bin` link is removed and the new file is linked to that same name. The configuration file is not edited.
+
+## Time engine
+
+The simulation runs in its own thread. `main` can pause it and wait until the current step has finished, then resume it.
+
+From `modules/conscious`:
+
+```text
+[SIMULATING]  … ms/s  age: … ms   [p] pause  [q] shutdown
+[ON HOLD]     [s] resume  [i] increment  [w] snapshot  [q] shutdown
+```
+
+`p` suspends the engine. `s` resumes it. `q` shuts down. `i`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `w`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken.
+
+On shutdown the world is written back only if `save_state_on_shutdown` is true. The development configuration leaves that false, so a run does not replace `world.bin`.
+
+## Build and run
+
+From `modules/conscious`:
+
+```bash
+make
+./build/conscious -v -c config/conscious-dev.cfg
+```
+
+`make` produces `build/conscious`. The build directory is not part of the repository.
+
+Useful options:
+
+```text
+-h, --help
+-v, --verbose
+-c, --config FILE
+-n, --name NAME
+-w, --validate-world FILE
+```
+
+`-v` prints the loaded world and each layer, with units. `-w` loads a world file, reports whether it is valid, and exits.
+
+`conscious-dev.cfg` starts in `SIMULATE` and points at `../../data/world.bin`. `config/conscious.cfg` is the same shape and, by default, saves the world on shutdown.
+
+Startup is `SIMULATE` or `HOLD`.
 
 ## References
 
 - [Project in Github](https://github.com/marianoalda/conscious)
 - [ChatGPT conversation including implementation and ethics](https://chatgpt.com/share/6aaab1ce-9c64-83ed-971f-411bacf42cb4)
 - [Gemini conversation including the own basic theory about artificial consciousness](https://share.gemini.google/azB9mMfjqQD8)
+- [Original project statement](README.original.md)
+
+## Ideas futuras
+
+These are still the aim. They are not in the program.
+
+- An open, modular and distributed architecture: the world as a shared memory segment, and beings written in another language (the original example was Smalltalk) so they can evolve and coexist with other differently-evolved beings in the same engine.
+- Beings as a repository and an engine: object oriented, with their own rules, able to evolve so that different specimens with different features (DNA) and feature expressions can exist simultaneously. Able to emit messages. Basic circuits (thirst, hunger, reproduction, cold) in the reality and in the model. A lifecycle. An integrated model of the world and of the being itself, not necessarily synchronized. Surviving instinct as the spark that keeps them alive. Behaviours that trigger anomalies, such as curiosity.
+- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is the place those would hang; only the static heightmap exists today.
+- The time engine able to be accelerated or slowed down, not only suspended.
+- Snapshots of beings as well as of the world, and external tools that translate to human language what happens in the world and inside the beings: evolution, thoughts, analysis of protolanguage.
+- A world console or control panel: suspend, explain, explain changes between snapshots, translate the world and the beings. A real-time representation, graphical or textual, that can feed other agents. Orders from a remote control panel.
+- Debugging across a heterogeneous set of languages.
+- Compatibility among engines beyond the world file: versions, tags, releases, and a written account of which features each engine requires.
+- Setup and understanding of the Github issues subsystem.
+- Automation of build and execution beyond `make` in `modules/conscious`.
+
+## Obsoleto
+
+These phrases from the original statement no longer match the code. They are kept here so the old text is not read as the design.
+
+- The world is not itself the engine. It is the repository. The simulation engine is separate and is what advances the tick. Rules such as "the grass grows every tick" are not implemented; the step only selects layers that are due, and the only layer does not evolve.
+- The runtime world is not one embedded heightmap. It is an array of layer pointers. A version 3 file is the same sequence of layer blocks, read until the file ends.
+- New worlds are not written as version 0 or version 1. Those formats, and version 2, are read. Saving writes version 3.
+- "How to automate the build" is no longer an open question for this module. The build is `make` in `modules/conscious`.
+- `modules/conscious/README.md` still says the world implementation is a placeholder that only checks whether the file opens, and that version 1 is what gets written. That description is obsolete.

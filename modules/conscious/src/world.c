@@ -167,22 +167,66 @@ void world_initialize_defaults(
 
 static void world_free_layer(world_layer_t *layer)
 {
-    world_heightmap_payload_t *heightmap;
-
     if (layer == NULL) {
         return;
     }
 
-    if (layer->type == WORLD_LAYER_HEIGHTMAP &&
-        layer->payload != NULL) {
-        heightmap = layer->payload;
-        free(heightmap->values);
-        free(heightmap);
-    } else {
+    if (layer->payload != NULL) {
+        if (layer->type == WORLD_LAYER_HEIGHTMAP) {
+            world_heightmap_payload_t *heightmap = layer->payload;
+
+            free(heightmap->values);
+        } else if (layer->type == WORLD_LAYER_STATICWATER) {
+            world_staticwater_payload_t *water = layer->payload;
+
+            free(water->values);
+        }
+
         free(layer->payload);
     }
 
     free(layer);
+}
+
+static world_error_t world_append_layer(
+    world_state_t *world,
+    world_layer_type_t type,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    void *payload)
+{
+    world_layer_t *layer;
+    world_layer_t **grown;
+
+    if (world_find_layer(world, type) != NULL) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    layer = calloc(1, sizeof(*layer));
+
+    if (layer == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    grown = realloc(
+        world->layers,
+        (world->layer_count + 1) * sizeof(*grown));
+
+    if (grown == NULL) {
+        free(layer);
+        return WORLD_ERROR_FILE;
+    }
+
+    layer->type = type;
+    layer->clock = clock;
+    layer->last_simulation_tick = last_simulation_tick;
+    layer->payload = payload;
+
+    world->layers = grown;
+    world->layers[world->layer_count] = layer;
+    world->layer_count++;
+
+    return WORLD_OK;
 }
 
 const world_layer_t *world_find_layer(
@@ -217,26 +261,12 @@ world_error_t world_append_heightmap_layer(
     int32_t min_height,
     uint32_t *values)
 {
-    world_layer_t *layer;
     world_heightmap_payload_t *payload;
-    world_layer_t **grown;
+    world_error_t error;
 
-    layer = calloc(1, sizeof(*layer));
     payload = calloc(1, sizeof(*payload));
 
-    if (layer == NULL || payload == NULL) {
-        free(layer);
-        free(payload);
-        return WORLD_ERROR_FILE;
-    }
-
-    grown = realloc(
-        world->layers,
-        (world->layer_count + 1) * sizeof(*grown));
-
-    if (grown == NULL) {
-        free(layer);
-        free(payload);
+    if (payload == NULL) {
         return WORLD_ERROR_FILE;
     }
 
@@ -244,14 +274,53 @@ world_error_t world_append_heightmap_layer(
     payload->min_height = min_height;
     payload->values = values;
 
-    layer->type = WORLD_LAYER_HEIGHTMAP;
-    layer->clock = clock;
-    layer->last_simulation_tick = last_simulation_tick;
-    layer->payload = payload;
+    error = world_append_layer(
+        world,
+        WORLD_LAYER_HEIGHTMAP,
+        clock,
+        last_simulation_tick,
+        payload);
 
-    world->layers = grown;
-    world->layers[world->layer_count] = layer;
-    world->layer_count++;
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
+
+    return WORLD_OK;
+}
+
+world_error_t world_append_staticwater_layer(
+    world_state_t *world,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    int32_t min_depth,
+    uint32_t *values)
+{
+    world_staticwater_payload_t *payload;
+    world_error_t error;
+
+    payload = calloc(1, sizeof(*payload));
+
+    if (payload == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    payload->cell_size = cell_size;
+    payload->min_depth = min_depth;
+    payload->values = values;
+
+    error = world_append_layer(
+        world,
+        WORLD_LAYER_STATICWATER,
+        clock,
+        last_simulation_tick,
+        payload);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
 
     return WORLD_OK;
 }

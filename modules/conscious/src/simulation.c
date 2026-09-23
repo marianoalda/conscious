@@ -22,6 +22,8 @@ struct simulation {
 
     world_state_t *world;
     world_tick_t world_tick;
+    bool stop_armed;
+    world_tick_t stop_tick;
 
     bool terminate_requested;
     bool thread_started;
@@ -43,6 +45,9 @@ static void simulate_layer(
         case WORLD_LAYER_HEIGHTMAP:
             simulate_heightmap(layer, tick);
             break;
+
+        case WORLD_LAYER_STATICWATER:
+            break;
     }
 
     layer->last_simulation_tick = tick;
@@ -53,6 +58,10 @@ static bool layer_is_due(
     world_tick_t tick)
 {
     world_tick_t period;
+
+    if (layer->type == WORLD_LAYER_STATICWATER) {
+        return false;
+    }
 
     if (layer->clock.mode != WORLD_CLOCK_DIVISOR) {
         return false;
@@ -145,6 +154,12 @@ static void *simulation_run(void *arg)
 
         /* the tick is considered done AFTER the simulation is done */
         simulation->world_tick++;
+
+        if (simulation->stop_armed &&
+            simulation->world_tick >= simulation->stop_tick) {
+            simulation->requested_state = SIMULATION_PAUSED;
+            simulation->stop_armed = false;
+        }
     }
 }
 
@@ -209,6 +224,7 @@ int simulation_pause(simulation_t *simulation)
     pthread_mutex_lock(&simulation->mutex);
 
     simulation->requested_state = SIMULATION_PAUSED;
+    simulation->stop_armed = false;
 
     pthread_cond_broadcast(&simulation->condition);
 
@@ -221,6 +237,29 @@ int simulation_resume(simulation_t *simulation)
 {
     pthread_mutex_lock(&simulation->mutex);
 
+    simulation->stop_armed = false;
+    simulation->requested_state = SIMULATION_RUNNING;
+
+    pthread_cond_broadcast(&simulation->condition);
+
+    pthread_mutex_unlock(&simulation->mutex);
+
+    return 0;
+}
+
+int simulation_resume_for(
+    simulation_t *simulation,
+    world_tick_t steps)
+{
+    pthread_mutex_lock(&simulation->mutex);
+
+    if (steps > UINT64_MAX - simulation->world_tick) {
+        pthread_mutex_unlock(&simulation->mutex);
+        return -1;
+    }
+
+    simulation->stop_tick = simulation->world_tick + steps;
+    simulation->stop_armed = true;
     simulation->requested_state = SIMULATION_RUNNING;
 
     pthread_cond_broadcast(&simulation->condition);

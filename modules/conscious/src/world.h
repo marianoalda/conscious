@@ -9,6 +9,8 @@
 #define WORLD_LAYER_MAGIC "_LYR"
 #define WORLD_LAYER_TYPE_HEIGHTMAP "TYPE_HEIGHTMAP"
 #define WORLD_LAYER_NAME_HEIGHTMAP "LYR_HEIGHTMAP"
+#define WORLD_LAYER_TYPE_STATICWATER "TYPE_STATICWATER"
+#define WORLD_LAYER_NAME_STATICWATER "LYR_STATICWATER"
 #define WORLD_LAYER_EVOLUTION_NONE "EV_N"
 #define WORLD_LAYER_STORAGE_DENSE "ST_D"
 
@@ -49,7 +51,8 @@ typedef enum {
 } world_modularity_t;
 
 typedef enum {
-    WORLD_LAYER_HEIGHTMAP
+    WORLD_LAYER_HEIGHTMAP,
+    WORLD_LAYER_STATICWATER
 } world_layer_type_t;
 
 typedef struct {
@@ -57,6 +60,12 @@ typedef struct {
     int32_t min_height;
     uint32_t *values;
 } world_heightmap_payload_t;
+
+typedef struct {
+    uint32_t cell_size;
+    int32_t min_depth;
+    uint32_t *values;
+} world_staticwater_payload_t;
 
 typedef struct {
     world_layer_type_t type;

@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <getopt.h>
 #include <limits.h>
 #include <stdio.h>
@@ -32,6 +33,9 @@ static const char *layer_type_name(world_layer_type_t type)
     switch (type) {
         case WORLD_LAYER_HEIGHTMAP:
             return WORLD_LAYER_TYPE_HEIGHTMAP;
+
+        case WORLD_LAYER_STATICWATER:
+            return WORLD_LAYER_TYPE_STATICWATER;
 
         default:
             return "unknown";
@@ -112,6 +116,20 @@ static void print_loaded_world(const world_state_t *world)
             printf(
                 "      min_height: %" PRId32 " %s\n",
                 heightmap->min_height,
+                WORLD_DISTANCE_UNIT);
+        }
+
+        if (layer->type == WORLD_LAYER_STATICWATER &&
+            layer->payload != NULL) {
+            const world_staticwater_payload_t *water = layer->payload;
+
+            printf(
+                "      cell_size: %" PRIu32 " %s\n",
+                water->cell_size,
+                WORLD_DISTANCE_UNIT);
+            printf(
+                "      min_depth: %" PRId32 " %s\n",
+                water->min_depth,
                 WORLD_DISTANCE_UNIT);
         }
     }
@@ -316,6 +334,28 @@ static int parse_configuration(FILE *config_file, configuration_t *configuration
             }
         }
 
+        else if (strcmp(variable, "incremental_steps") == 0) {
+            char *end_pointer;
+            unsigned long long steps;
+
+            errno = 0;
+            steps = strtoull(value, &end_pointer, 10);
+
+            if (value[0] == '-' ||
+                errno != 0 ||
+                end_pointer == value ||
+                *end_pointer != '\0' ||
+                steps == 0) {
+                fprintf(stderr,
+                        "Error: Invalid value for '%s' at line %u: '%s'. "
+                        "Expected a positive integer.\n",
+                        variable, line_number, value);
+                return -1;
+            }
+
+            configuration->incremental_steps = steps;
+        }
+
         else if (strcmp(variable, "world_file") == 0) {
             if (strlen(value) >= sizeof(configuration->world_file)) {
                 fprintf(stderr,
@@ -464,6 +504,7 @@ int main(int argc, char **argv)
     configuration_t configuration = {
         .save_state_on_shutdown = true,
         .state_on_start = SIMULATE,
+        .incremental_steps = 3600000,
         .world_file = "world.bin"
     };
 
@@ -624,6 +665,8 @@ int main(int argc, char **argv)
 
     world_tick_t previous_world_tick = 0;
     struct timespec previous_time;
+    bool incremental_active = false;
+    world_tick_t incremental_stop_tick = 0;
 
     if (simulation_init(&simulation, &world) != 0) {
         fprintf(stderr, "Error: Unable to initialize simulation.\n");
@@ -666,6 +709,18 @@ int main(int argc, char **argv)
         fd_set read_fds;
         struct timeval timeout;
 
+        if (main_state == SIMULATING && incremental_active) {
+            world_tick_t current_world_tick;
+
+            current_world_tick = simulation_get_world_tick(simulation);
+
+            if (current_world_tick >= incremental_stop_tick) {
+                simulation_wait_until_paused(simulation);
+                main_state = ON_HOLD;
+                incremental_active = false;
+            }
+        }
+
         if (main_state == SIMULATING) {
             world_tick_t current_world_tick;
             struct timespec current_time;
@@ -691,16 +746,30 @@ int main(int argc, char **argv)
             previous_world_tick = current_world_tick;
             previous_time = current_time;
 
-            printf(
-                "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
-                "[p] pause  [q] shutdown\033[K",
-                ticks_per_second,
-                WORLD_TICK_UNIT,
-                current_world_tick,
-                WORLD_TICK_UNIT);
+            if (incremental_active) {
+                printf(
+                    "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
+                    "until: %" PRIu64 " %s  "
+                    "[p] pause  [q] shutdown\033[K",
+                    ticks_per_second,
+                    WORLD_TICK_UNIT,
+                    current_world_tick,
+                    WORLD_TICK_UNIT,
+                    incremental_stop_tick,
+                    WORLD_TICK_UNIT);
+            } else {
+                printf(
+                    "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
+                    "[p] pause  [q] shutdown\033[K",
+                    ticks_per_second,
+                    WORLD_TICK_UNIT,
+                    current_world_tick,
+                    WORLD_TICK_UNIT);
+            }
         } else {
             printf(
-                "\r[ON HOLD]     [s] resume  [w] snapshot  [q] shutdown\033[K");
+                "\r[ON HOLD]     [s] resume  [i] increment  "
+                "[w] snapshot  [q] shutdown\033[K");
         }
 
         fflush(stdout);
@@ -749,6 +818,7 @@ int main(int argc, char **argv)
             simulation_pause(simulation);
             simulation_wait_until_paused(simulation);
             main_state = ON_HOLD;
+            incremental_active = false;
         }
         else if (key == 'w' && main_state == ON_HOLD) {
            save_snapshot(
@@ -759,9 +829,30 @@ int main(int argc, char **argv)
         else if (key == 's' && main_state == ON_HOLD) {
             simulation_resume(simulation);
             main_state = SIMULATING;
+            incremental_active = false;
 
             previous_world_tick = simulation_get_world_tick(simulation);
             clock_gettime(CLOCK_MONOTONIC, &previous_time);
+        }
+        else if (key == 'i' && main_state == ON_HOLD) {
+            world_tick_t now;
+
+            now = simulation_get_world_tick(simulation);
+
+            if (simulation_resume_for(
+                    simulation,
+                    configuration.incremental_steps) != 0) {
+                fprintf(
+                    stderr,
+                    "\nError: Incremental steps overflow the world age.\n");
+            } else {
+                incremental_stop_tick = now + configuration.incremental_steps;
+                incremental_active = true;
+                main_state = SIMULATING;
+
+                previous_world_tick = now;
+                clock_gettime(CLOCK_MONOTONIC, &previous_time);
+            }
         }
     }
  

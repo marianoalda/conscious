@@ -70,7 +70,7 @@ Fields that an older file does not contain are filled as follows:
 | 2              | from file  | 0 ms  | from file            | 0 ms                 |
 | 3              | from file  | from file | from file         | from file            |
 
-Version 0 has no heightmap. Versions 1, 2, and 3 each contain exactly one.
+Version 0 has no heightmap. Versions 1 and 2 each contain exactly one heightmap. Version 3 contains a sequence of layer blocks; the loader reads until the file ends.
 
 ## Writing world files
 
