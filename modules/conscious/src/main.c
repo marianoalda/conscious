@@ -27,6 +27,96 @@ typedef struct {
     const char *validate_world_file;
 } options_t;
 
+static const char *layer_type_name(world_layer_type_t type)
+{
+    switch (type) {
+        case WORLD_LAYER_HEIGHTMAP:
+            return WORLD_LAYER_TYPE_HEIGHTMAP;
+
+        default:
+            return "unknown";
+    }
+}
+
+static void print_layer_clock(const world_clock_t *clock)
+{
+    if (clock->mode == WORLD_CLOCK_NOEV) {
+        printf("%s", WORLD_LAYER_CLOCK_NOEV);
+        return;
+    }
+
+    if (clock->mode == WORLD_CLOCK_DIVISOR) {
+        printf("%s%04u", WORLD_LAYER_CLOCK_PREFIX, clock->exponent);
+        return;
+    }
+
+    printf("unknown");
+}
+
+static const char *modularity_name(world_modularity_t modularity)
+{
+    switch (modularity) {
+        case WORLD_MODULARITY_CLOSED:
+            return WORLD_MODULARITY_CLOSED_VALUE;
+
+        case WORLD_MODULARITY_MODULAR:
+            return WORLD_MODULARITY_MODULAR_VALUE;
+
+        default:
+            return "unknown";
+    }
+}
+
+/************************************
+ * Print the loaded world and its layers when verbose.
+ */
+static void print_loaded_world(const world_state_t *world)
+{
+    uint32_t i;
+
+    printf("World\n");
+    printf("  format_version: %" PRIu32 "\n", world->format_version);
+    printf("  width: %" PRIu32 " %s\n", world->width, WORLD_DISTANCE_UNIT);
+    printf("  depth: %" PRIu32 " %s\n", world->depth, WORLD_DISTANCE_UNIT);
+    printf("  modularity: %s\n", modularity_name(world->modularity));
+    printf("  age: %" PRIu64 " %s\n", world->age, WORLD_TICK_UNIT);
+    printf("  layers: %" PRIu32 "\n", world->layer_count);
+
+    for (i = 0; i < world->layer_count; i++) {
+        const world_layer_t *layer = world->layers[i];
+
+        printf("    [%u]\n", i);
+
+        if (layer == NULL) {
+            printf("      (null)\n");
+            continue;
+        }
+
+        printf("      type: %s\n", layer_type_name(layer->type));
+        printf("      clock: ");
+        print_layer_clock(&layer->clock);
+        printf("\n");
+        printf(
+            "      last_simulation_tick: %" PRIu64 " %s\n",
+            layer->last_simulation_tick,
+            WORLD_TICK_UNIT);
+
+        if (layer->type == WORLD_LAYER_HEIGHTMAP &&
+            layer->payload != NULL) {
+            const world_heightmap_payload_t *heightmap = layer->payload;
+
+            printf(
+                "      cell_size: %" PRIu32 " %s\n",
+                heightmap->cell_size,
+                WORLD_DISTANCE_UNIT);
+            printf(
+                "      min_height: %" PRId32 " %s\n",
+                heightmap->min_height,
+                WORLD_DISTANCE_UNIT);
+        }
+    }
+}
+
 /************************************
  * Print help
  */
@@ -515,14 +605,13 @@ int main(int argc, char **argv)
             "Error: Unable to load world: %s.\n",
             world_error_string(world_error));
 
+        world_destroy(&world);
+
         return EXIT_FAILURE;
     }
 
-    /* print world format version if verbose */
     if (options.verbose) {
-        printf(
-            "World format version: %u\n",
-            world.format_version);
+        print_loaded_world(&world);
     }
 
     /*************************
@@ -536,14 +625,16 @@ int main(int argc, char **argv)
     world_tick_t previous_world_tick = 0;
     struct timespec previous_time;
 
-    if (simulation_init(&simulation, world.age) != 0) {
+    if (simulation_init(&simulation, &world) != 0) {
         fprintf(stderr, "Error: Unable to initialize simulation.\n");
+        world_destroy(&world);
         return EXIT_FAILURE;
     }
 
     if (simulation_start(simulation) != 0) {
         fprintf(stderr, "Error: Unable to start simulation.\n");
         simulation_destroy(simulation);
+        world_destroy(&world);
         return EXIT_FAILURE;
     }
 
@@ -565,6 +656,7 @@ int main(int argc, char **argv)
     if (enable_operator_input(&original_terminal) != 0) {
         fprintf(stderr, "Error: Unable to configure terminal input.\n");
         simulation_destroy(simulation);
+        world_destroy(&world);
         return EXIT_FAILURE;
     }
 
@@ -600,10 +692,12 @@ int main(int argc, char **argv)
             previous_time = current_time;
 
             printf(
-                "\r[SIMULATING]  %.1f ticks/s  age: %" PRIu64 "  "
+                "\r[SIMULATING]  %.1f %s/s  age: %" PRIu64 " %s  "
                 "[p] pause  [q] shutdown\033[K",
                 ticks_per_second,
-                current_world_tick);
+                WORLD_TICK_UNIT,
+                current_world_tick,
+                WORLD_TICK_UNIT);
         } else {
             printf(
                 "\r[ON HOLD]     [s] resume  [w] snapshot  [q] shutdown\033[K");
@@ -691,12 +785,15 @@ int main(int argc, char **argv)
 
         if (world_serialize(absolute_world_path, &world) != 0) {
             fprintf(stderr, "Error: Unable to save world %s.\n", absolute_world_path);
+            world_destroy(&world);
             return EXIT_FAILURE;
         }
     }
 
     /* Exit */
     printf("Exiting.\n");
+
+    world_destroy(&world);
 
     return EXIT_SUCCESS;
 }

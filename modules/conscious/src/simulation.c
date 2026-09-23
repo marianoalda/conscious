@@ -20,21 +20,80 @@ struct simulation {
     simulation_state_t requested_state;
     simulation_state_t actual_state;
 
+    world_state_t *world;
     world_tick_t world_tick;
 
     bool terminate_requested;
     bool thread_started;
 };
 
-static void simulate_step(void)
+static void simulate_heightmap(
+    world_layer_t *layer,
+    world_tick_t tick)
 {
-    /*
-     * To avoid the tick rolling at full 
-     * speed while not really simulating 
-     * anything, we use a 1ms timer
-     */
+    (void)layer;
+    (void)tick;
+}
+
+static void simulate_layer(
+    world_layer_t *layer,
+    world_tick_t tick)
+{
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP:
+            simulate_heightmap(layer, tick);
+            break;
+    }
+
+    layer->last_simulation_tick = tick;
+}
+
+static bool layer_is_due(
+    const world_layer_t *layer,
+    world_tick_t tick)
+{
+    world_tick_t period;
+
+    if (layer->clock.mode != WORLD_CLOCK_DIVISOR) {
+        return false;
+    }
+
+    if (layer->clock.exponent >= 64) {
+        return false;
+    }
+
+    period = (world_tick_t)1 << layer->clock.exponent;
+
+    return (tick & (period - 1)) == 0;
+}
+
+static void simulate_step(simulation_t *simulation)
+{
+    world_state_t *world;
+    world_tick_t tick;
+    uint32_t i;
     struct timespec duration;
 
+    world = simulation->world;
+    tick = simulation->world_tick;
+
+    if (world != NULL && world->layers != NULL) {
+        for (i = 0; i < world->layer_count; i++) {
+            world_layer_t *layer = world->layers[i];
+
+            if (layer == NULL || !layer_is_due(layer, tick)) {
+                continue;
+            }
+
+            simulate_layer(layer, tick);
+        }
+    }
+
+    /*
+     * To avoid the tick rolling at full
+     * speed while not really simulating
+     * anything, we use a 1ms timer
+     */
     duration.tv_sec = 0;
     duration.tv_nsec = 1000000L; /* 1 ms */
 
@@ -71,7 +130,7 @@ static void *simulation_run(void *arg)
 
         pthread_mutex_unlock(&simulation->mutex);
 
-        simulate_step();
+        simulate_step(simulation);
 
         /* 
          * Here, either:
@@ -91,9 +150,13 @@ static void *simulation_run(void *arg)
 
 int simulation_init(
     simulation_t **simulation,
-    world_tick_t initial_tick)
+    world_state_t *world)
 {
     simulation_t *new_simulation;
+
+    if (world == NULL) {
+        return -1;
+    }
 
     new_simulation = calloc(1, sizeof(*new_simulation));
     if (new_simulation == NULL) {
@@ -113,8 +176,9 @@ int simulation_init(
 
     new_simulation->requested_state = SIMULATION_PAUSED;
     new_simulation->actual_state = SIMULATION_PAUSED;
-    
-    new_simulation->world_tick = initial_tick;
+
+    new_simulation->world = world;
+    new_simulation->world_tick = world->age;
 
     *simulation = new_simulation;
 

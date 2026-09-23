@@ -18,6 +18,10 @@
 #define WORLD_LAYER_CLOCK_NOEV "CLK_NOEV"
 #define WORLD_LAYER_CLOCK_PREFIX "CLK_"
 
+/* Distances are millimetres. One world tick is one millisecond. */
+#define WORLD_DISTANCE_UNIT "mm"
+#define WORLD_TICK_UNIT "ms"
+
 typedef uint64_t world_tick_t;
 
 typedef enum {
@@ -44,13 +48,22 @@ typedef enum {
     WORLD_MODULARITY_MODULAR
 } world_modularity_t;
 
+typedef enum {
+    WORLD_LAYER_HEIGHTMAP
+} world_layer_type_t;
+
 typedef struct {
     uint32_t cell_size;
     int32_t min_height;
+    uint32_t *values;
+} world_heightmap_payload_t;
+
+typedef struct {
+    world_layer_type_t type;
     world_clock_t clock;
     world_tick_t last_simulation_tick;
-    uint32_t *values;
-} world_heightmap_t;
+    void *payload;
+} world_layer_t;
 
 typedef struct {
     uint32_t format_version;
@@ -58,7 +71,8 @@ typedef struct {
     uint32_t depth;
     world_modularity_t modularity;
     world_tick_t age;
-    world_heightmap_t heightmap;
+    uint32_t layer_count;
+    world_layer_t **layers;
 } world_state_t;
 
 world_error_t world_load(

@@ -17,12 +17,14 @@ static world_error_t deserialize_heightmap_v1(
 
     uint32_t cell_size;
     int32_t min_height;
+    uint32_t *values;
 
     uint32_t cell_width;
     uint32_t cell_depth;
     uint64_t cell_count;
     uint64_t i;
 
+    world_clock_t clock;
     world_error_t error;
 
     error = world_io_read_fixed_string(
@@ -60,12 +62,8 @@ static world_error_t deserialize_heightmap_v1(
     /* in v1, we didn't even have a clock divisor,
      * but the flag for heightmap layer was "no evolution"
      */
-    world->heightmap.clock.mode =
-        WORLD_CLOCK_NOEV;
-
-    world->heightmap.clock.exponent = 0;
-
-    world->heightmap.last_simulation_tick = 0;
+    clock.mode = WORLD_CLOCK_NOEV;
+    clock.exponent = 0;
 
     error = world_io_read_fixed_string(
         file,
@@ -113,26 +111,34 @@ static world_error_t deserialize_heightmap_v1(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    world->heightmap.values =
-        malloc((size_t)cell_count * sizeof(uint32_t));
+    values = malloc((size_t)cell_count * sizeof(uint32_t));
 
-    if (world->heightmap.values == NULL) {
+    if (values == NULL) {
         return WORLD_ERROR_FILE;
     }
-
-    world->heightmap.cell_size = cell_size;
-    world->heightmap.min_height = min_height;
 
     for (i = 0; i < cell_count; i++) {
         error = world_io_read_uint32_be(
             file,
-            &world->heightmap.values[i]);
+            &values[i]);
 
         if (error != WORLD_OK) {
-            free(world->heightmap.values);
-            world->heightmap.values = NULL;
+            free(values);
             return error;
         }
+    }
+
+    error = world_append_heightmap_layer(
+        world,
+        clock,
+        0,
+        cell_size,
+        min_height,
+        values);
+
+    if (error != WORLD_OK) {
+        free(values);
+        return error;
     }
 
     return WORLD_OK;
@@ -208,34 +214,42 @@ world_error_t world_v1_serialize(
     FILE *file,
     const world_state_t *world)
 {
+    const world_layer_t *layer;
+    const world_heightmap_payload_t *heightmap;
     uint32_t cell_width;
     uint32_t cell_depth;
     uint64_t cell_count;
     uint64_t i;
     world_error_t error;
 
+    layer = world_find_layer(world, WORLD_LAYER_HEIGHTMAP);
+
+    if (layer == NULL || layer->payload == NULL) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    heightmap = layer->payload;
+
     if (world->width == 0 || world->depth == 0) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    if (world->heightmap.cell_size == 0) {
+    if (heightmap->cell_size == 0) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    if (world->width % world->heightmap.cell_size != 0 ||
-        world->depth % world->heightmap.cell_size != 0) {
+    if (world->width % heightmap->cell_size != 0 ||
+        world->depth % heightmap->cell_size != 0) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    if (world->heightmap.values == NULL) {
+    if (heightmap->values == NULL) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    cell_width =
-        world->width / world->heightmap.cell_size;
+    cell_width = world->width / heightmap->cell_size;
 
-    cell_depth =
-        world->depth / world->heightmap.cell_size;
+    cell_depth = world->depth / heightmap->cell_size;
 
     cell_count = (uint64_t)cell_width * cell_depth;
 
@@ -303,7 +317,7 @@ world_error_t world_v1_serialize(
 
     error = world_io_write_uint32_be(
         file,
-        world->heightmap.cell_size);
+        heightmap->cell_size);
 
     if (error != WORLD_OK) {
         return error;
@@ -311,7 +325,7 @@ world_error_t world_v1_serialize(
 
     error = world_io_write_int32_be(
         file,
-        world->heightmap.min_height);
+        heightmap->min_height);
 
     if (error != WORLD_OK) {
         return error;
@@ -320,7 +334,7 @@ world_error_t world_v1_serialize(
     for (i = 0; i < cell_count; i++) {
         error = world_io_write_uint32_be(
             file,
-            world->heightmap.values[i]);
+            heightmap->values[i]);
 
         if (error != WORLD_OK) {
             return error;

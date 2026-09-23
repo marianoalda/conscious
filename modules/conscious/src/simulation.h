@@ -7,7 +7,7 @@ typedef struct simulation simulation_t;
 
 int simulation_init(
     simulation_t **simulation,
-    world_tick_t initial_tick);
+    world_state_t *world);
 
 int simulation_start(simulation_t *simulation);
 

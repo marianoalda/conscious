@@ -163,11 +163,97 @@ void world_initialize_defaults(
     *world = (world_state_t){0};
 
     world->modularity = WORLD_MODULARITY_CLOSED;
+}
 
-    world->heightmap.clock.mode =
-        WORLD_CLOCK_DIVISOR;
+static void world_free_layer(world_layer_t *layer)
+{
+    world_heightmap_payload_t *heightmap;
 
-    world->heightmap.clock.exponent = 0;
+    if (layer == NULL) {
+        return;
+    }
+
+    if (layer->type == WORLD_LAYER_HEIGHTMAP &&
+        layer->payload != NULL) {
+        heightmap = layer->payload;
+        free(heightmap->values);
+        free(heightmap);
+    } else {
+        free(layer->payload);
+    }
+
+    free(layer);
+}
+
+const world_layer_t *world_find_layer(
+    const world_state_t *world,
+    world_layer_type_t type)
+{
+    uint32_t i;
+
+    if (world == NULL || world->layers == NULL) {
+        return NULL;
+    }
+
+    for (i = 0; i < world->layer_count; i++) {
+        if (world->layers[i] != NULL &&
+            world->layers[i]->type == type) {
+            return world->layers[i];
+        }
+    }
+
+    return NULL;
+}
+
+/*
+ * Takes ownership of values when it succeeds.
+ * On failure the caller still owns values.
+ */
+world_error_t world_append_heightmap_layer(
+    world_state_t *world,
+    world_clock_t clock,
+    world_tick_t last_simulation_tick,
+    uint32_t cell_size,
+    int32_t min_height,
+    uint32_t *values)
+{
+    world_layer_t *layer;
+    world_heightmap_payload_t *payload;
+    world_layer_t **grown;
+
+    layer = calloc(1, sizeof(*layer));
+    payload = calloc(1, sizeof(*payload));
+
+    if (layer == NULL || payload == NULL) {
+        free(layer);
+        free(payload);
+        return WORLD_ERROR_FILE;
+    }
+
+    grown = realloc(
+        world->layers,
+        (world->layer_count + 1) * sizeof(*grown));
+
+    if (grown == NULL) {
+        free(layer);
+        free(payload);
+        return WORLD_ERROR_FILE;
+    }
+
+    payload->cell_size = cell_size;
+    payload->min_height = min_height;
+    payload->values = values;
+
+    layer->type = WORLD_LAYER_HEIGHTMAP;
+    layer->clock = clock;
+    layer->last_simulation_tick = last_simulation_tick;
+    layer->payload = payload;
+
+    world->layers = grown;
+    world->layers[world->layer_count] = layer;
+    world->layer_count++;
+
+    return WORLD_OK;
 }
 
 /*******************************
@@ -175,10 +261,22 @@ void world_initialize_defaults(
  */
 void world_destroy(world_state_t *world)
 {
-    free(world->heightmap.values);
+    uint32_t i;
 
-    world->heightmap.values = NULL;
-    world->heightmap.cell_size = 0;
-    world->heightmap.min_height = 0;
+    if (world == NULL) {
+        return;
+    }
+
+    if (world->layers != NULL) {
+        for (i = 0; i < world->layer_count; i++) {
+            world_free_layer(world->layers[i]);
+            world->layers[i] = NULL;
+        }
+
+        free(world->layers);
+    }
+
+    world->layers = NULL;
+    world->layer_count = 0;
 }
 
