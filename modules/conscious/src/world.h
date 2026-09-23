@@ -27,6 +27,7 @@
 #define WORLD_TICK_UNIT "ms"
 #define WORLD_IRRADIANCE_UNIT "W/m2"
 
+/* Absolute world time. One tick is one millisecond. */
 typedef uint64_t world_tick_t;
 
 typedef enum {
@@ -39,71 +40,84 @@ typedef enum {
 } world_error_t;
 
 typedef enum {
-    WORLD_CLOCK_NOEV,
-    WORLD_CLOCK_DIVISOR
+    WORLD_CLOCK_NOEV,       /* the layer is never simulated */
+    WORLD_CLOCK_DIVISOR     /* simulated every 2^exponent ticks */
 } world_clock_mode_t;
 
 typedef struct {
     world_clock_mode_t mode;
-    uint16_t exponent;
+    uint16_t exponent;      /* period = 2^exponent milliseconds */
 } world_clock_t;
 
 typedef enum {
-    WORLD_MODULARITY_CLOSED,
-    WORLD_MODULARITY_MODULAR
+    WORLD_MODULARITY_CLOSED,    /* edges are borders */
+    WORLD_MODULARITY_MODULAR    /* opposite edges meet; not applied yet */
 } world_modularity_t;
 
 typedef enum {
-    WORLD_LAYER_HEIGHTMAP,
-    WORLD_LAYER_STATICWATER,
-    WORLD_LAYER_DIFFLIGHT
+    WORLD_LAYER_HEIGHTMAP,      /* terrain elevation */
+    WORLD_LAYER_STATICWATER,   /* water depth that does not move */
+    WORLD_LAYER_DIFFLIGHT       /* diffuse daylight irradiance */
 } world_layer_type_t;
 
+/*
+ * A dense grid keeps two cell buffers of the same size.
+ * published is what other layers, the viewer and the file see.
+ * pending is reserved for the tick being calculated. Readers keep
+ * using published until the tick publishes pending in its place.
+ * On disk only published is stored.
+ */
 typedef struct {
-    uint32_t cell_size;
-    int32_t min_height;
-    uint32_t *values;
+    uint32_t cell_size;     /* millimetres; divides width and depth */
+    int32_t min_height;     /* millimetres; elevation = min_height + cell */
+    uint32_t *published;
+    uint32_t *pending;
 } world_heightmap_payload_t;
 
 typedef struct {
-    uint32_t cell_size;
-    int32_t min_depth;
-    uint32_t *values;
+    uint32_t cell_size;     /* millimetres; same grid as the heightmap */
+    int32_t min_depth;      /* millimetres; depth = min_depth + cell */
+    uint32_t *published;    /* 0 is dry ground */
+    uint32_t *pending;
 } world_staticwater_payload_t;
 
 typedef struct {
-    uint32_t cell_size;
-    uint32_t max_irradiance;
-    uint32_t *values;
+    uint32_t cell_size;         /* millimetres; need not match the terrain */
+    uint32_t max_irradiance;    /* W/m²; a cell value of 0 is night */
+    uint32_t *published;        /* current irradiance, W/m², not an offset */
+    uint32_t *pending;
 } world_difflight_payload_t;
 
 typedef struct {
     world_layer_type_t type;
     world_clock_t clock;
-    world_tick_t last_simulation_tick;
-    void *payload;
+    world_tick_t last_simulation_tick;  /* tick of the last published update */
+    void *payload;                      /* type-specific grid */
 } world_layer_t;
 
 typedef struct {
-    uint32_t format_version;
-    uint32_t width;
-    uint32_t depth;
+    uint32_t format_version;    /* version read from the file */
+    uint32_t width;             /* east-west extent, millimetres */
+    uint32_t depth;             /* north-south extent, millimetres */
     world_modularity_t modularity;
-    world_tick_t age;
+    world_tick_t age;           /* milliseconds since tick 0, which is 00:00 */
     uint32_t layer_count;
-    world_layer_t **layers;
+    world_layer_t **layers;     /* one layer of each type at most */
 } world_state_t;
 
+/* Read any supported version. Older files gain the defaults of later ones. */
 world_error_t world_load(
     const char *filename,
     world_state_t *world);
 
+/* Write version 3. The file stores published grids only. */
 world_error_t world_serialize(
     const char *filename,
     const world_state_t *world);
 
 const char *world_error_string(world_error_t error);
 
+/* Free every layer, including both cell buffers. */
 void world_destroy(world_state_t *world);
 
 #endif

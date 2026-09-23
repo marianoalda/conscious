@@ -165,6 +165,7 @@ static const world_staticwater_payload_t *find_staticwater(
     return NULL;
 }
 
+/* Daylight fraction from the published irradiance. A missing layer is night. */
 static float file_daylight(const world_state_t *world)
 {
     const world_difflight_payload_t *light = NULL;
@@ -185,7 +186,7 @@ static float file_daylight(const world_state_t *world)
     }
 
     if (light == NULL ||
-        light->values == NULL ||
+        light->published == NULL ||
         light->max_irradiance == 0 ||
         light->cell_size == 0 ||
         world->width % light->cell_size != 0 ||
@@ -202,7 +203,7 @@ static float file_daylight(const world_state_t *world)
 
     sum = 0.0;
     for (cell = 0; cell < cell_count; cell++) {
-        sum += (double)light->values[cell];
+        sum += (double)light->published[cell];
     }
 
     return (float)((sum / (double)cell_count) / (double)light->max_irradiance);
@@ -214,7 +215,7 @@ static double cell_elevation_m(
     uint32_t column,
     uint32_t row)
 {
-    uint32_t offset = heightmap->values[row * cell_width + column];
+    uint32_t offset = heightmap->published[row * cell_width + column];
 
     return ((double)heightmap->min_height + (double)offset) / 1000.0;
 }
@@ -227,7 +228,7 @@ static int build_mesh(const world_state_t *world)
     double cell_m;
 
     heightmap = find_heightmap(world);
-    if (heightmap == NULL || heightmap->values == NULL ||
+    if (heightmap == NULL || heightmap->published == NULL ||
         heightmap->cell_size == 0) {
         return -1;
     }
@@ -309,14 +310,14 @@ static int build_mesh(const world_state_t *world)
         const world_staticwater_payload_t *water = find_staticwater(world);
 
         if (water != NULL &&
-            water->values != NULL &&
+            water->published != NULL &&
             water->cell_size == heightmap->cell_size) {
             for (row = 0; row < mesh.cell_depth; row++) {
                 for (column = 0; column < mesh.cell_width; column++) {
                     uint32_t index = row * mesh.cell_width + column;
                     double depth_mm =
                         (double)water->min_depth +
-                        (double)water->values[index];
+                        (double)water->published[index];
 
                     if (depth_mm < 0.0) {
                         depth_mm = 0.0;

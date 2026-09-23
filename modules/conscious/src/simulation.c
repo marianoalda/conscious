@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 typedef enum {
@@ -88,7 +89,7 @@ static void simulate_difflight(
 
     light = layer->payload;
 
-    if (light->values == NULL || light->cell_size == 0) {
+    if (light->published == NULL || light->cell_size == 0) {
         return;
     }
 
@@ -112,8 +113,129 @@ static void simulate_difflight(
         irradiance = (uint32_t)llround(scaled);
     }
 
+    if (light->pending == NULL) {
+        return;
+    }
+
+    /* Fill pending. published stays as it was at the start of the tick. */
     for (i = 0; i < cell_count; i++) {
-        light->values[i] = irradiance;
+        light->pending[i] = irradiance;
+    }
+}
+
+/*
+ * Both grids of a layer. pending is the buffer the tick fills.
+ * published is the one already visible.
+ */
+static void layer_grids(
+    world_layer_t *layer,
+    uint32_t **published,
+    uint32_t **pending,
+    uint32_t *cell_size)
+{
+    *published = NULL;
+    *pending = NULL;
+    *cell_size = 0;
+
+    if (layer == NULL || layer->payload == NULL) {
+        return;
+    }
+
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP: {
+            world_heightmap_payload_t *heightmap = layer->payload;
+
+            *published = heightmap->published;
+            *pending = heightmap->pending;
+            *cell_size = heightmap->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_STATICWATER: {
+            world_staticwater_payload_t *water = layer->payload;
+
+            *published = water->published;
+            *pending = water->pending;
+            *cell_size = water->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            world_difflight_payload_t *light = layer->payload;
+
+            *published = light->published;
+            *pending = light->pending;
+            *cell_size = light->cell_size;
+            break;
+        }
+    }
+}
+
+/* Keep pending equal to published when a step changes only some cells. */
+static void mirror_published(const world_state_t *world, world_layer_t *layer)
+{
+    uint32_t *published;
+    uint32_t *pending;
+    uint32_t cell_size;
+    uint64_t cell_count;
+
+    layer_grids(layer, &published, &pending, &cell_size);
+
+    if (published == NULL ||
+        pending == NULL ||
+        cell_size == 0 ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / cell_size) *
+        (uint64_t)(world->depth / cell_size);
+    memcpy(pending, published, (size_t)cell_count * sizeof(uint32_t));
+}
+
+/* Make the tick's grid visible. Called after every due layer has read. */
+static void publish_layer(world_layer_t *layer)
+{
+    uint32_t *published;
+    uint32_t *pending;
+    uint32_t cell_size;
+    uint32_t *previous;
+
+    layer_grids(layer, &published, &pending, &cell_size);
+    (void)cell_size;
+
+    if (published == NULL || pending == NULL) {
+        return;
+    }
+
+    previous = published;
+
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP: {
+            world_heightmap_payload_t *heightmap = layer->payload;
+
+            heightmap->published = heightmap->pending;
+            heightmap->pending = previous;
+            break;
+        }
+
+        case WORLD_LAYER_STATICWATER: {
+            world_staticwater_payload_t *water = layer->payload;
+
+            water->published = water->pending;
+            water->pending = previous;
+            break;
+        }
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            world_difflight_payload_t *light = layer->payload;
+
+            light->published = light->pending;
+            light->pending = previous;
+            break;
+        }
     }
 }
 
@@ -138,6 +260,11 @@ static void simulate_layer(
     layer->last_simulation_tick = tick;
 }
 
+/*
+ * A layer is due from its clock alone. Static water never is, so it
+ * stays put even if the file carried a divisor. The stored grid is
+ * still readable on ticks when this returns false.
+ */
 static bool layer_is_due(
     const world_layer_t *layer,
     world_tick_t tick)
@@ -181,7 +308,23 @@ static void simulate_step(simulation_t *simulation)
                 continue;
             }
 
+            mirror_published(world, layer);
             simulate_layer(world, layer, tick);
+        }
+
+        /*
+         * Publish only once every due layer has read the grids
+         * from the start of this tick. Array order does not decide
+         * who sees a new value.
+         */
+        for (i = 0; i < world->layer_count; i++) {
+            world_layer_t *layer = world->layers[i];
+
+            if (layer == NULL || !layer_is_due(layer, tick)) {
+                continue;
+            }
+
+            publish_layer(layer);
         }
     }
 

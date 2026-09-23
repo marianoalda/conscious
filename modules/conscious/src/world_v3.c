@@ -565,6 +565,7 @@ static world_error_t load_one_layer_v3(
     return WORLD_ERROR_INVALID_FORMAT;
 }
 
+/* Static water, when present, uses the heightmap cell size. Order in the file does not matter. */
 static world_error_t check_staticwater_grid(
     const world_state_t *world)
 {
@@ -597,6 +598,7 @@ static world_error_t check_staticwater_grid(
     return WORLD_OK;
 }
 
+/* Layers follow the header until EOF. Each one reserves published and pending. */
 world_error_t world_v3_load(
     FILE *file,
     world_state_t *world)
@@ -854,7 +856,7 @@ static world_error_t write_layer_v3(
                 layer->last_simulation_tick,
                 heightmap->cell_size,
                 heightmap->min_height,
-                heightmap->values,
+                heightmap->published,
                 cell_count);
         }
 
@@ -883,7 +885,7 @@ static world_error_t write_layer_v3(
                 layer->last_simulation_tick,
                 water->cell_size,
                 water->min_depth,
-                water->values,
+                water->published,
                 cell_count);
         }
 
@@ -911,7 +913,7 @@ static world_error_t write_layer_v3(
                 layer->last_simulation_tick,
                 light->cell_size,
                 (int32_t)light->max_irradiance,
-                light->values,
+                light->published,
                 cell_count);
         }
     }

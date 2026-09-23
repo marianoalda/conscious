@@ -457,8 +457,9 @@ static int get_absolute_world_path(
     return 0;
 }
 
-/************************************
- * Save snapshot
+/*
+ * Write the published grids beside the world file.
+ * The name ends with the age in milliseconds. The original file is kept.
  */
 static int save_snapshot(
     simulation_t *simulation,

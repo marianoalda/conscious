@@ -175,15 +175,18 @@ static void world_free_layer(world_layer_t *layer)
         if (layer->type == WORLD_LAYER_HEIGHTMAP) {
             world_heightmap_payload_t *heightmap = layer->payload;
 
-            free(heightmap->values);
+            free(heightmap->published);
+            free(heightmap->pending);
         } else if (layer->type == WORLD_LAYER_STATICWATER) {
             world_staticwater_payload_t *water = layer->payload;
 
-            free(water->values);
+            free(water->published);
+            free(water->pending);
         } else if (layer->type == WORLD_LAYER_DIFFLIGHT) {
             world_difflight_payload_t *light = layer->payload;
 
-            free(light->values);
+            free(light->published);
+            free(light->pending);
         }
 
         free(layer->payload);
@@ -254,8 +257,50 @@ const world_layer_t *world_find_layer(
 }
 
 /*
- * Takes ownership of values when it succeeds.
- * On failure the caller still owns values.
+ * Reserve the tick buffer. It matches published in size and content,
+ * so the loaded world is intact before any tick calculates into it.
+ * On failure the caller still owns published.
+ */
+static world_error_t allocate_pending_grid(
+    const world_state_t *world,
+    uint32_t cell_size,
+    const uint32_t *published,
+    uint32_t **pending)
+{
+    uint64_t cell_count;
+    size_t bytes;
+
+    if (published == NULL ||
+        cell_size == 0 ||
+        world->width == 0 ||
+        world->depth == 0 ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / cell_size) *
+        (uint64_t)(world->depth / cell_size);
+
+    if (cell_count > SIZE_MAX / sizeof(uint32_t)) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    bytes = (size_t)cell_count * sizeof(uint32_t);
+    *pending = malloc(bytes);
+
+    if (*pending == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    memcpy(*pending, published, bytes);
+    return WORLD_OK;
+}
+
+/*
+ * Takes ownership of published when it succeeds, and allocates pending.
+ * On failure the caller still owns published.
  */
 world_error_t world_append_heightmap_layer(
     world_state_t *world,
@@ -263,7 +308,7 @@ world_error_t world_append_heightmap_layer(
     world_tick_t last_simulation_tick,
     uint32_t cell_size,
     int32_t min_height,
-    uint32_t *values)
+    uint32_t *published)
 {
     world_heightmap_payload_t *payload;
     world_error_t error;
@@ -276,7 +321,18 @@ world_error_t world_append_heightmap_layer(
 
     payload->cell_size = cell_size;
     payload->min_height = min_height;
-    payload->values = values;
+    payload->published = published;
+
+    error = allocate_pending_grid(
+        world,
+        cell_size,
+        published,
+        &payload->pending);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
 
     error = world_append_layer(
         world,
@@ -286,6 +342,7 @@ world_error_t world_append_heightmap_layer(
         payload);
 
     if (error != WORLD_OK) {
+        free(payload->pending);
         free(payload);
         return error;
     }
@@ -299,7 +356,7 @@ world_error_t world_append_staticwater_layer(
     world_tick_t last_simulation_tick,
     uint32_t cell_size,
     int32_t min_depth,
-    uint32_t *values)
+    uint32_t *published)
 {
     world_staticwater_payload_t *payload;
     world_error_t error;
@@ -312,7 +369,18 @@ world_error_t world_append_staticwater_layer(
 
     payload->cell_size = cell_size;
     payload->min_depth = min_depth;
-    payload->values = values;
+    payload->published = published;
+
+    error = allocate_pending_grid(
+        world,
+        cell_size,
+        published,
+        &payload->pending);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
 
     error = world_append_layer(
         world,
@@ -322,6 +390,7 @@ world_error_t world_append_staticwater_layer(
         payload);
 
     if (error != WORLD_OK) {
+        free(payload->pending);
         free(payload);
         return error;
     }
@@ -335,7 +404,7 @@ world_error_t world_append_difflight_layer(
     world_tick_t last_simulation_tick,
     uint32_t cell_size,
     uint32_t max_irradiance,
-    uint32_t *values)
+    uint32_t *published)
 {
     world_difflight_payload_t *payload;
     world_error_t error;
@@ -348,7 +417,18 @@ world_error_t world_append_difflight_layer(
 
     payload->cell_size = cell_size;
     payload->max_irradiance = max_irradiance;
-    payload->values = values;
+    payload->published = published;
+
+    error = allocate_pending_grid(
+        world,
+        cell_size,
+        published,
+        &payload->pending);
+
+    if (error != WORLD_OK) {
+        free(payload);
+        return error;
+    }
 
     error = world_append_layer(
         world,
@@ -358,6 +438,7 @@ world_error_t world_append_difflight_layer(
         payload);
 
     if (error != WORLD_OK) {
+        free(payload->pending);
         free(payload);
         return error;
     }

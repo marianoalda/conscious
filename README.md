@@ -32,7 +32,7 @@ The time engine can be suspended. While it runs, one step is one millisecond of 
 
 The world is a repository. It is quantized in cells. Distances are millimetres. One world tick is one millisecond.
 
-In memory the world holds an array of layers. Each layer has its metadata and a pointer to its payload. On disk, version 3 stores that sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell and is the first layer the step updates.
+In memory the world holds an array of layers. Each layer has its metadata and a payload with two dense grids of the same size. `published` is the grid other layers, the viewer, and the file see. `pending` is the grid filled during the current tick. A step reads `published` only. When every layer that is due has finished reading, the two grids exchange roles. On disk, version 3 stores that published sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell, in W/m², and is the first layer the step updates.
 
 A cell stores an offset above the layer's minimum height:
 
@@ -45,7 +45,7 @@ A layer clock says when that layer is simulated:
 * `CLK_NOEV` — the layer is static;
 * `CLK_` followed by an exponent — the layer is simulated every `2^exponent` milliseconds.
 
-The heightmap shipped with the current worlds is `CLK_NOEV`. The step walks the array and runs only the layers that are due on that tick. The heightmap has no evolution rules yet, so a static layer is skipped. When `step_delay_us` is set, the step waits that many microseconds so the clock does not run away while nothing is being simulated. The shipped configuration sets it to 1. If the parameter is omitted, the step does not wait.
+The heightmap shipped with the current worlds is `CLK_NOEV`. The step walks the array and runs only the layers that are due on that tick. The heightmap and static water have no evolution rules yet, so those layers are skipped. When `step_delay_us` is set, the step waits that many microseconds so the clock does not run away while nothing is being simulated. `config/conscious.cfg` sets it to 1. `conscious-dev.cfg` omits it, and so does any configuration that leaves the parameter out: the step does not wait.
 
 The world also stores whether it is `CLOSED` or `MODULAR`. That property is saved and loaded. The engine does not yet join opposite edges.
 
@@ -81,7 +81,7 @@ From `modules/conscious`:
 [ON HOLD]     [s] resume  [i] increment  [w] snapshot  [q] shutdown
 ```
 
-`p` suspends the engine. `s` resumes it. `q` shuts down. `i`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `w`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken.
+`p` suspends the engine. `s` resumes it. `q` shuts down. `i`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `w`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken. Files under `modules/data` whose name ends in a dot and digits are ignored by git.
 
 On shutdown the world is written back only if `save_state_on_shutdown` is true. The development configuration leaves that false, so a run does not replace `world.bin`.
 
@@ -108,9 +108,20 @@ Useful options:
 
 `-v` prints the loaded world and each layer, with units. `-w` loads a world file, reports whether it is valid, and exits.
 
-`conscious-dev.cfg` starts in `SIMULATE` and points at `../../data/world.bin`. `config/conscious.cfg` is the same shape and, by default, saves the world on shutdown.
+`conscious-dev.cfg` starts in `HOLD`, leaves `step_delay_us` unset, and points at `../../data/world.bin`. `config/conscious.cfg` starts in `SIMULATE`, sets `step_delay_us` to 1, and saves the world on shutdown.
 
 Startup is `SIMULATE` or `HOLD`.
+
+## Heightmap viewer
+
+From `modules/heightmap-view`:
+
+```bash
+make
+./build/heightmap-view ../data/world.bin 0.25 0.85
+```
+
+`DIFFUSE` is the light that remains at night, from 0 to 1. `DIRECT` shades the slopes and is scaled by the world's daylight. The viewer prints that fraction as `Daylight:`. Terrain is brown. Static water is cyan at the same luminance as the ground, and it uses the shade of the terrain face underneath. The build directory is not part of the repository.
 
 ## References
 
@@ -125,7 +136,7 @@ These are still the aim. They are not in the program.
 
 - An open, modular and distributed architecture: the world as a shared memory segment, and beings written in another language (the original example was Smalltalk) so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Beings as a repository and an engine: object oriented, with their own rules, able to evolve so that different specimens with different features (DNA) and feature expressions can exist simultaneously. Able to emit messages. Basic circuits (thirst, hunger, reproduction, cold) in the reality and in the model. A lifecycle. An integrated model of the world and of the being itself, not necessarily synchronized. Surviving instinct as the spark that keeps them alive. Behaviours that trigger anomalies, such as curiosity.
-- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is the place those would hang; only the static heightmap exists today.
+- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is that place. Static water and diffuse daylight are there today. Fertility, humidity, and grass are not.
 - The time engine able to be accelerated or slowed down, not only suspended.
 - Snapshots of beings as well as of the world, and external tools that translate to human language what happens in the world and inside the beings: evolution, thoughts, analysis of protolanguage.
 - A world console or control panel: suspend, explain, explain changes between snapshots, translate the world and the beings. A real-time representation, graphical or textual, that can feed other agents. Orders from a remote control panel.
@@ -138,7 +149,7 @@ These are still the aim. They are not in the program.
 
 These phrases from the original statement no longer match the code. They are kept here so the old text is not read as the design.
 
-- The world is not itself the engine. It is the repository. The simulation engine is separate and is what advances the tick. Rules such as "the grass grows every tick" are not implemented; the step only selects layers that are due, and the only layer does not evolve.
+- The world is not itself the engine. It is the repository. The simulation engine is separate and is what advances the tick. Rules such as "the grass grows every tick" are not implemented. The step selects the layers that are due. Diffuse daylight evolves with the world age. The heightmap and static water do not.
 - The runtime world is not one embedded heightmap. It is an array of layer pointers. A version 3 file is the same sequence of layer blocks, read until the file ends.
 - New worlds are not written as version 0 or version 1. Those formats, and version 2, are read. Saving writes version 3.
 - "How to automate the build" is no longer an open question for this module. The build is `make` in `modules/conscious`.

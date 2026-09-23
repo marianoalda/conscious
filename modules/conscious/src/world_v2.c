@@ -288,6 +288,7 @@ static world_error_t deserialize_heightmap_v2(
     return WORLD_OK;
 }
 
+/* Version 1 plus the world modularity and a clock on the heightmap. */
 world_error_t world_v2_load(
     FILE *file,
     world_state_t *world)
@@ -397,7 +398,7 @@ world_error_t world_v2_serialize(
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
-    if (heightmap->values == NULL) {
+    if (heightmap->published == NULL) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
@@ -500,7 +501,7 @@ world_error_t world_v2_serialize(
     for (i = 0; i < cell_count; i++) {
         error = world_io_write_uint32_be(
             file,
-            heightmap->values[i]);
+            heightmap->published[i]);
 
         if (error != WORLD_OK) {
             return error;

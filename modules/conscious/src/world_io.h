@@ -6,6 +6,8 @@
 
 #include "world.h"
 
+/* Multi-byte integers in a world file are big-endian. Strings are fixed width and are not terminated. */
+
 world_error_t world_io_read_uint32_be(
     FILE *file,
     uint32_t *value);

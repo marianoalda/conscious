@@ -10,8 +10,9 @@ The format does not store a unit field. The units are defined here and in each v
 
 | Quantity                                         | Unit        | Symbol |
 | ------------------------------------------------ | ----------- | ------ |
-| Width, depth, cell size, and heights             | millimetre  | mm     |
+| Width, depth, cell size, heights, and water depth | millimetre | mm     |
 | World age and a layer's last simulation tick     | millisecond | ms     |
+| Diffuse daylight irradiance, from version 3      | watt/metre² | W/m²   |
 
 One world tick is one millisecond.
 
@@ -34,7 +35,7 @@ Future versions are added as separate documents. The document of an older versio
 v0    CWLD + version
 v1    dimensions + one dense heightmap
 v2    world modularity + layer clock
-v3    world age + last simulation tick of the layer
+v3    world age + last simulation tick + further layer blocks
 ```
 
 Version 2 removes version 1's `EV_N` field. The clock is a new field, not a new reading of `EV_N`.
