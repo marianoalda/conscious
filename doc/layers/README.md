@@ -32,6 +32,8 @@ A layer that is not due keeps the values from its last due tick. Readers still s
 
 `MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity is the only caller today. The flow it computes from that neighbour is its own rule.
 
+`world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer.
+
 ## Dependencies
 
 An arrow means the source is read, or receives a delta, when the destination runs. Dashed arrows are designed and are not in the code.

@@ -63,7 +63,7 @@ static void humidity_saturate_standing_water(
         for (column = 0; column < columns; column++) {
             uint32_t east_mm;
             uint32_t north_mm;
-            uint32_t water_index;
+            int64_t cell;
             uint64_t depth;
 
             east_mm =
@@ -73,19 +73,16 @@ static void humidity_saturate_standing_water(
                 row * humidity->cell_size +
                 humidity->cell_size / 2;
 
-            if (!world_cell_at(
-                    world->width,
-                    world->depth,
-                    water->cell_size,
+            if (!world_layer_value(
+                    world,
+                    layer,
                     east_mm,
                     north_mm,
-                    &water_index)) {
+                    &cell)) {
                 continue;
             }
 
-            depth =
-                (uint64_t)water->min_depth +
-                water->published[water_index];
+            depth = (uint64_t)water->min_depth + (uint64_t)cell;
 
             if (depth > 0) {
                 humidity->pending[row * columns + column] =
@@ -97,22 +94,23 @@ static void humidity_saturate_standing_water(
 
 /* Depth > 0 at the centre of this humidity cell. */
 static bool humidity_covers_water(
-    const world_staticwater_payload_t *water,
+    const world_layer_t *water_layer,
     const world_state_t *world,
     const world_u16_payload_t *humidity,
     uint32_t column,
     uint32_t row)
 {
+    const world_staticwater_payload_t *water;
     uint32_t east_mm;
     uint32_t north_mm;
-    uint32_t water_index;
+    int64_t cell;
     uint64_t depth;
 
-    if (water == NULL ||
-        water->published == NULL ||
-        water->cell_size == 0) {
+    if (water_layer == NULL || water_layer->payload == NULL) {
         return false;
     }
+
+    water = water_layer->payload;
 
     east_mm =
         column * humidity->cell_size +
@@ -121,19 +119,16 @@ static bool humidity_covers_water(
         row * humidity->cell_size +
         humidity->cell_size / 2;
 
-    if (!world_cell_at(
-            world->width,
-            world->depth,
-            water->cell_size,
+    if (!world_layer_value(
+            world,
+            water_layer,
             east_mm,
             north_mm,
-            &water_index)) {
+            &cell)) {
         return false;
     }
 
-    depth =
-        (uint64_t)water->min_depth +
-        water->published[water_index];
+    depth = (uint64_t)water->min_depth + (uint64_t)cell;
 
     return depth > 0;
 }
@@ -250,33 +245,33 @@ static void humidity_diffuse_step(
  */
 static double humidity_radiation_fraction(
     const world_state_t *world,
-    const world_difflight_payload_t *light,
+    const world_layer_t *light_layer,
     uint32_t east_mm,
     uint32_t north_mm)
 {
-    uint32_t index;
-    uint32_t irradiance;
+    const world_difflight_payload_t *light;
+    int64_t irradiance;
 
-    if (light == NULL ||
-        light->published == NULL ||
-        light->max_irradiance == 0 ||
-        light->cell_size == 0) {
+    if (light_layer == NULL || light_layer->payload == NULL) {
         return 0.0;
     }
 
-    if (!world_cell_at(
-            world->width,
-            world->depth,
-            light->cell_size,
+    light = light_layer->payload;
+
+    if (light->max_irradiance == 0) {
+        return 0.0;
+    }
+
+    if (!world_layer_value(
+            world,
+            light_layer,
             east_mm,
             north_mm,
-            &index)) {
+            &irradiance)) {
         return 0.0;
     }
 
-    irradiance = light->published[index];
-
-    if (irradiance >= light->max_irradiance) {
+    if ((uint64_t)irradiance >= light->max_irradiance) {
         return 1.0;
     }
 
@@ -297,29 +292,26 @@ static double humidity_radiation_fraction(
  */
 static double humidity_grass_divisor(
     const world_state_t *world,
-    const world_u8_payload_t *grass,
+    const world_layer_t *grass_layer,
     uint32_t east_mm,
     uint32_t north_mm)
 {
-    uint32_t index;
+    int64_t height;
 
-    if (grass == NULL ||
-        grass->published == NULL ||
-        grass->cell_size == 0) {
+    if (grass_layer == NULL) {
         return 1.0;
     }
 
-    if (!world_cell_at(
-            world->width,
-            world->depth,
-            grass->cell_size,
+    if (!world_layer_value(
+            world,
+            grass_layer,
             east_mm,
             north_mm,
-            &index)) {
+            &height)) {
         return 1.0;
     }
 
-    return 1.0 - 0.5 * ((double)grass->published[index] / 255.0);
+    return 1.0 - 0.5 * ((double)height / 255.0);
 }
 
 /*
@@ -332,18 +324,23 @@ static double humidity_grass_divisor(
 static void humidity_evaporate(
     const world_state_t *world,
     world_u16_payload_t *humidity,
-    const world_difflight_payload_t *light,
-    const world_u8_payload_t *grass,
+    const world_layer_t *light_layer,
+    const world_layer_t *grass_layer,
     double hours)
 {
+    const world_difflight_payload_t *light;
     uint32_t columns;
     uint32_t rows;
     uint32_t row;
     uint32_t column;
 
-    if (hours <= 0.0 ||
-        light == NULL ||
-        light->max_irradiance == 0) {
+    if (hours <= 0.0 || light_layer == NULL || light_layer->payload == NULL) {
+        return;
+    }
+
+    light = light_layer->payload;
+
+    if (light->max_irradiance == 0) {
         return;
     }
 
@@ -369,12 +366,12 @@ static void humidity_evaporate(
                 humidity->cell_size / 2;
             fraction = humidity_radiation_fraction(
                 world,
-                light,
+                light_layer,
                 east_mm,
                 north_mm);
             divisor = humidity_grass_divisor(
                 world,
-                grass,
+                grass_layer,
                 east_mm,
                 north_mm);
             index = row * columns + column;
@@ -420,9 +417,6 @@ void simulate_humidity(
     const world_layer_t *light_layer;
     const world_layer_t *water_layer;
     const world_layer_t *grass_layer;
-    const world_difflight_payload_t *light;
-    const world_staticwater_payload_t *water;
-    const world_u8_payload_t *grass;
     uint16_t *source;
     double *delta;
     uint8_t *wet;
@@ -490,12 +484,7 @@ void simulate_humidity(
         return;
     }
 
-    water = NULL;
     water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
-
-    if (water_layer != NULL) {
-        water = water_layer->payload;
-    }
 
     for (row = 0; row < rows; row++) {
         for (column = 0; column < columns; column++) {
@@ -503,7 +492,7 @@ void simulate_humidity(
 
             index = row * columns + column;
             wet[index] = humidity_covers_water(
-                water,
+                water_layer,
                 world,
                 humidity,
                 column,
@@ -511,18 +500,8 @@ void simulate_humidity(
         }
     }
 
-    light = NULL;
-    grass = NULL;
     light_layer = world_find_layer(world, WORLD_LAYER_DIFFLIGHT);
     grass_layer = world_find_layer(world, WORLD_LAYER_GRASS);
-
-    if (light_layer != NULL) {
-        light = light_layer->payload;
-    }
-
-    if (grass_layer != NULL) {
-        grass = grass_layer->payload;
-    }
 
     rate =
         HUMIDITY_DIFFUSION_PER_HOUR *
@@ -555,7 +534,12 @@ void simulate_humidity(
             columns,
             rows,
             coefficient);
-        humidity_evaporate(world, humidity, light, grass, step_hours);
+        humidity_evaporate(
+            world,
+            humidity,
+            light_layer,
+            grass_layer,
+            step_hours);
         humidity_saturate_standing_water(world, humidity);
 
         left -= step_hours;

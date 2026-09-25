@@ -174,6 +174,21 @@ bool world_cell_at(
     uint32_t *index);
 
 /*
+ * Published cell of this layer that contains (east_mm, north_mm).
+ * The integer is the stored cell, widened: heightmap and static water
+ * offsets, daylight irradiance, humidity 0..65535, fertility and grass
+ * 0..255. It does not add min_height or min_depth. Callers interpret.
+ * Reads published only. value is left unchanged when the function
+ * returns false.
+ */
+bool world_layer_value(
+    const world_state_t *world,
+    const world_layer_t *layer,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    int64_t *value);
+
+/*
  * Orthogonal neighbour on one layer's grid. columns and rows are
  * that layer's own counts, because cell sizes differ. The step is
  * in cells, usually +1 or −1 on a single axis.
