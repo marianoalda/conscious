@@ -23,15 +23,15 @@ Dependencies: OpenGL, GLU, X11, and a C11 compiler.
 | Argument  | Meaning |
 | --------- | ------- |
 | `WORLD`   | Path to a Conscious world file |
-| `DIFFUSE` | Light that remains at night, from 0 to 1 |
-| `DIRECT`  | Weight of the directional term, scaled by the world's daylight |
+| `DIFFUSE` | Unlit floor, from 0 to 1. Keep it modest so slope shade has room. |
+| `DIRECT`  | Weight of the directional term on every face, including night. |
 
-The program prints `Daylight:` as the mean published irradiance divided by the layer maximum. That fraction fills the range from `DIFFUSE` up to full day and scales the slope shading. At night only `DIFFUSE` remains, so a snapshot taken in the dark is still visible.
+The program prints `Daylight:` as the mean published irradiance divided by the layer maximum. That fraction lifts the whole scene a little. It no longer turns off slope shading, so a midnight file (age 0, or a snapshot taken at 00:00) still shows hills.
 
-Example with the pool world that includes grass and humidity:
+Example:
 
 ```bash
-./build/heightmap-view ../data/world-po-mo-fer-hu-gr-v3-day.bin 0.25 0.85
+./build/heightmap-view ../data/world-stone-hills-v3.bin 0.22 0.85
 ```
 
 ## Controls
@@ -51,7 +51,7 @@ Each heightmap cell is one sample. A drawn corner is the average of the cells th
 
 Draw order, back to front within the depth test:
 
-1. **Terrain** — brown, shaded by `DIFFUSE`, daylight, and a fixed light toward the north-east above the horizon.
+1. **Terrain** — brown, shaded by `DIFFUSE`, a fixed light toward the north-east, and a small lift from the file's daylight.
 2. **Grass** — green on the same terrain face. Opacity is `height / 255`. Height 0 leaves the face brown; 255 covers it.
 3. **Static water** — cyan at the same luminance as the terrain, shaded like the ground face underneath, drawn at terrain elevation plus depth.
 4. **Humidity** — blue sheet hung from the heightmap's stored zero (`min_height`), not from the terrain surface.

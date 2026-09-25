@@ -10,9 +10,10 @@
  * diagonal from its southwest corner to its northeast corner.
  *
  * Daylight is the world's diffuse-light cell divided by its maximum.
- * It fills the shade from the command-line diffuse up to full day, and it
- * scales the directional term. At night only the command-line diffuse remains,
- * so a snapshot is still visible. L points toward the northeast, above the horizon.
+ * It brightens the scene a little. Directional shade uses the command-line
+ * DIRECT weight on every face, including at night, so hills keep contrast
+ * when the file is midnight. DIFFUSE is the unlit floor. L points toward
+ * the northeast, above the horizon.
  *
  * Terrain is brown. Grass is green on that same face: its opacity is its
  * height divided by 255, so bare ground stays brown and full height covers it.
@@ -119,7 +120,7 @@ static void usage(void)
         "\n"
         "WORLD     Conscious world file\n"
         "DIFFUSE   light that remains at night, from 0 to 1\n"
-        "DIRECT    weight of the directional light, scaled by daylight\n"
+        "DIRECT    weight of slope lighting; not gated on daylight\n"
         "\n"
         "Mouse wheel zooms. Drag with the left button to orbit,\n"
         "above or below the world.\n"
@@ -595,12 +596,13 @@ static float face_shade(const vec3 *a, const vec3 *b, const vec3 *c)
     }
 
     /*
-     * The argument is the night floor. The file fills the rest of the
-     * range, and the directional lamp only contributes while the sun is up.
-     * Otherwise a bright argument already saturates every face.
+     * DIFFUSE is the unlit floor. DIRECT shades the slope on every
+     * face, including night: scaling it by daylight flattened midnight
+     * worlds and mesa tops. Daylight only lifts the scene a little,
+     * so noon does not clamp every face to 1.
      */
-    shade = view.diffuse + view.daylight * (1.0f - view.diffuse);
-    shade += view.direct * incidence * view.daylight;
+    shade = view.diffuse + view.direct * incidence;
+    shade += 0.2f * view.daylight;
     return clampf(shade, 0.0f, 1.0f);
 }
 
