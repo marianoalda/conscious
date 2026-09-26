@@ -12,12 +12,14 @@ The layer was added empty, then filled with that ring so the viewer could show i
 
 The trophic sketch, not a function definition: grass would be born, grow, and die from fertility, humidity, nearby grass, and radiation. Growth would spend fertility. Death would return more biomass than growth had taken, because the plant builds mass from water, air, and light. The height is both the stored state and the stand-in for that biomass. A later herbivore would lower the height without triggering the death return. The cell stays one byte. A daily step is enough for a change of a few millimetres; the slow diffusion that needs more than eight bits is fertility, not grass.
 
+Fertility already folds a signed inbox. The rates waiting there are `FERTILITY_UPTAKE_PER_MM` (1) on growth and `FERTILITY_RETURN_PER_MM` (2) on death. Grass does not push those deltas yet.
+
 ## Simulation
 
-**Placeholder.** `simulate_coupled_u8` does not change a cell. Birth, growth, and death have no step sequence, no rates, and no scale between one millimetre and one fertility unit.
+**Placeholder.** `simulate_coupled_u8` does not change a cell. Birth, growth, and death have no step sequence.
 
 ## Dependencies
 
 Humidity reads the published height as a divisor on evaporation: 1 at height 0 and 0.5 at height 255. Humidity does not change grass. No function writes this layer.
 
-The sketch says grass would read published humidity, published daylight, nearby grass, and fertility including deltas not yet folded. It would push a negative fertility delta when it grows and a positive one when it dies. Those deltas are not defined as numbers.
+The sketch says grass would read published humidity, published daylight, nearby grass, and fertility including deltas not yet folded. It would push a negative fertility delta when it grows and a positive one when it dies.

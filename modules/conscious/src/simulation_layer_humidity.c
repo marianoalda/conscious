@@ -6,28 +6,115 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Saturated soil. 0 is dry. */
-#define HUMIDITY_SATURATED 65535u
-
-/*
- * Share of the difference with one neighbour that moves in one
- * hour on a 100 mm cell. One CLK_0016 wake (65536 ms) then moves
- * a quarter of that difference: the largest explicit step that
- * stays stable with four neighbours. A larger cell moves less,
- * by (100 / cell_mm)^2, because the stored value is a concentration.
- * At full sun the decay length is about 1.2 m.
- */
-#define HUMIDITY_DIFFUSION_CELL_MM 100.0
-#define HUMIDITY_DIFFUSION_PER_HOUR (0.25 * 3600000.0 / 65536.0)
-
-/* Largest fraction of one difference an explicit step may move. */
-#define HUMIDITY_DIFFUSION_STEP_LIMIT 0.25
-
 /*
  * Fraction of the humidity still in the cell removed per hour
  * at full irradiance. Not a fraction of saturation.
  */
 #define HUMIDITY_EVAPORATION_PER_HOUR 0.1
+
+static const world_direction_t humidity_directions[4] = {
+    WORLD_DIR_EAST,
+    WORLD_DIR_WEST,
+    WORLD_DIR_NORTH,
+    WORLD_DIR_SOUTH
+};
+
+/*
+ * Stored rise of this layer, scaled to one humidity cell step.
+ * Missing layer, missing neighbour, or run 0: no slope.
+ */
+static int64_t humidity_scaled_rise(
+    const world_state_t *world,
+    const world_layer_t *layer,
+    uint32_t cell_mm,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    world_direction_t direction)
+{
+    int64_t rise;
+    uint32_t run_mm;
+
+    if (layer == NULL || cell_mm == 0) {
+        return 0;
+    }
+
+    if (!world_layer_gradient(
+            world,
+            layer,
+            east_mm,
+            north_mm,
+            direction,
+            &rise,
+            &run_mm) ||
+        run_mm == 0) {
+        return 0;
+    }
+
+    return (rise * (int64_t)cell_mm) / (int64_t)run_mm;
+}
+
+double humidity_diffusion_rate(uint32_t cell_mm)
+{
+    if (cell_mm == 0) {
+        return 0.0;
+    }
+
+    return HUMIDITY_DIFFUSION_PER_HOUR *
+        (HUMIDITY_DIFFUSION_CELL_MM / (double)cell_mm) *
+        (HUMIDITY_DIFFUSION_CELL_MM / (double)cell_mm);
+}
+
+int64_t humidity_free_surface_dz(
+    const world_state_t *world,
+    uint32_t humidity_cell_mm,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    world_direction_t direction)
+{
+    const world_layer_t *heightmap_layer;
+    const world_layer_t *water_layer;
+
+    if (world == NULL) {
+        return 0;
+    }
+
+    heightmap_layer = world_find_layer(world, WORLD_LAYER_HEIGHTMAP);
+    water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
+
+    return humidity_scaled_rise(
+               world,
+               heightmap_layer,
+               humidity_cell_mm,
+               east_mm,
+               north_mm,
+               direction) +
+           humidity_scaled_rise(
+               world,
+               water_layer,
+               humidity_cell_mm,
+               east_mm,
+               north_mm,
+               direction);
+}
+
+double humidity_edge_flow(
+    int64_t humidity_here,
+    int64_t humidity_neighbor,
+    int64_t dz_mm,
+    double coefficient)
+{
+    double sum;
+
+    sum = (double)humidity_neighbor - (double)humidity_here;
+
+    if (HUMIDITY_CAPILLARY_RISE_MM > 0) {
+        sum +=
+            (double)((int64_t)HUMIDITY_SATURATED * dz_mm) /
+            (double)HUMIDITY_CAPILLARY_RISE_MM;
+    }
+
+    return coefficient * sum;
+}
 
 /*
  * Cells with standing water become saturated. Depth 0 is dry.
@@ -135,14 +222,15 @@ static bool humidity_covers_water(
 
 /*
  * One explicit step. Flow across an edge is coefficient times the
- * difference. Soil exchange sums to zero. Standing water stays at
- * saturation and does not lose what it gives.
+ * humidity difference plus a gravity term from the free-surface
+ * slope (heightmap plus standing water). Soil exchange sums to
+ * zero. Standing water stays at saturation and does not lose what
+ * it gives.
  *
  * Each soil cell sums the neighbours world_neighbor returns.
  * MODULAR therefore exchanges with the opposite edge. CLOSED
  * skips a missing side, which is a wall: nothing crosses it.
- * Grass and water are not looked up here; they are sampled at
- * the cell centre, which is already on the map.
+ * Slope is sampled at the cell centre, toward that neighbour.
  */
 static void humidity_diffuse_step(
     const world_state_t *world,
@@ -173,6 +261,8 @@ static void humidity_diffuse_step(
     for (row = 0; row < rows; row++) {
         for (column = 0; column < columns; column++) {
             uint32_t index;
+            uint32_t east_mm;
+            uint32_t north_mm;
             double sum;
             int neighbor;
 
@@ -182,11 +272,19 @@ static void humidity_diffuse_step(
                 continue;
             }
 
+            east_mm =
+                column * humidity->cell_size +
+                humidity->cell_size / 2;
+            north_mm =
+                row * humidity->cell_size +
+                humidity->cell_size / 2;
             sum = 0.0;
 
             for (neighbor = 0; neighbor < 4; neighbor++) {
                 uint32_t neighbor_index;
                 uint16_t neighbor_value;
+                int64_t dz;
+                world_direction_t direction;
 
                 if (!world_neighbor(
                         world,
@@ -206,8 +304,18 @@ static void humidity_diffuse_step(
                     neighbor_value = source[neighbor_index];
                 }
 
-                sum +=
-                    (double)neighbor_value - (double)source[index];
+                direction = humidity_directions[neighbor];
+                dz = humidity_free_surface_dz(
+                    world,
+                    humidity->cell_size,
+                    east_mm,
+                    north_mm,
+                    direction);
+                sum += humidity_edge_flow(
+                    (int64_t)source[index],
+                    (int64_t)neighbor_value,
+                    dz,
+                    1.0);
             }
 
             delta[index] = coefficient * sum;
@@ -405,7 +513,8 @@ static void humidity_evaporate(
 
 /*
  * Humidity owns its changes. It reads standing water, published
- * daylight, and published grass. It writes no other layer.
+ * daylight, published grass, and the slope of the heightmap and
+ * standing water. It writes no other layer.
  * See doc/layers/humidity.md.
  */
 void simulate_humidity(
@@ -503,10 +612,7 @@ void simulate_humidity(
     light_layer = world_find_layer(world, WORLD_LAYER_DIFFLIGHT);
     grass_layer = world_find_layer(world, WORLD_LAYER_GRASS);
 
-    rate =
-        HUMIDITY_DIFFUSION_PER_HOUR *
-        (HUMIDITY_DIFFUSION_CELL_MM / (double)humidity->cell_size) *
-        (HUMIDITY_DIFFUSION_CELL_MM / (double)humidity->cell_size);
+    rate = humidity_diffusion_rate(humidity->cell_size);
     left = hours;
 
     /*

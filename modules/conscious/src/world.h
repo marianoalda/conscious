@@ -188,6 +188,30 @@ bool world_layer_value(
     uint32_t north_mm,
     int64_t *value);
 
+typedef enum {
+    WORLD_DIR_EAST,
+    WORLD_DIR_WEST,
+    WORLD_DIR_NORTH,
+    WORLD_DIR_SOUTH
+} world_direction_t;
+
+/*
+ * Stored-cell rise from the cell that contains this point to its
+ * orthogonal neighbour on this layer, and the millimetres between
+ * those cell centres (the layer's cell_size). Same integer as
+ * world_layer_value; min_height is not added. CLOSED has no neighbour
+ * past the border. rise and run_mm are left unchanged when the
+ * function returns false.
+ */
+bool world_layer_gradient(
+    const world_state_t *world,
+    const world_layer_t *layer,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    world_direction_t direction,
+    int64_t *rise,
+    uint32_t *run_mm);
+
 /*
  * Orthogonal neighbour on one layer's grid. columns and rows are
  * that layer's own counts, because cell sizes differ. The step is

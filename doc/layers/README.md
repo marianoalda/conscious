@@ -19,7 +19,7 @@ The simulation status of a function is one of:
 | [Static water](static-water.md)            | Implemented   | `ST_D`, depth; the function never runs            |
 | [Diffuse daylight](diffuse-light.md)       | Implemented   | `ST_D`, irradiance in W/m²                        |
 | [Humidity](humidity.md)                    | Implemented   | `ST16`, 0 dry, 65535 saturated                   |
-| [Fertility](fertility.md)                  | Placeholder   | `ST_8`, 0..255                                    |
+| [Fertility](fertility.md)                  | Implemented   | `ST_8`, 0..255                                    |
 | [Grass](grass.md)                          | Placeholder   | `ST_8`, millimetres of height, 0..255             |
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
@@ -30,9 +30,9 @@ On a tick the engine visits each layer whose clock is due. Static water is never
 
 A layer that is not due keeps the values from its last due tick. Readers still see those values.
 
-`MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity is the only caller today. The flow it computes from that neighbour is its own rule.
+`MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity and fertility are the callers today. The flow each computes from that neighbour is its own rule.
 
-`world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer.
+`world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer. `world_layer_gradient` is the stored rise from that cell to its orthogonal neighbour on the same layer, and the millimetres between those centres. It does not interpret.
 
 ## Dependencies
 
@@ -47,14 +47,18 @@ flowchart LR
   grass[Grass]
   height[Heightmap]
 
-  height -.-> water
+  height --> humidity
   water --> humidity
   light --> humidity
   grass --> humidity
+  height --> fertility
+  water --> fertility
+  humidity --> fertility
+  grass -.-> fertility
   humidity -.-> grass
   light -.-> grass
   fertility -.-> grass
-  grass -.-> fertility
+  height -.-> water
 ```
 
 The heightmap does not feed the water grid. The viewer, and the meaning of the water surface, add the two elevations. Water cells are not derived from the heightmap by the simulation.
@@ -66,11 +70,11 @@ The [heightmap viewer](../../modules/heightmap-view/README.md) reads published g
 | Heightmap        | Nothing                                                  | Nothing                                                   |
 | Static water     | Nothing. It does not run.                                | Nothing                                                   |
 | Diffuse daylight | The world age                                            | Nothing. It does not evaporate humidity.                  |
-| Humidity         | Its own grid, static water, published light, published grass | Nothing. Evaporation is its own rule, scaled by the grass height. |
-| Fertility        | Not defined                                              | Not defined. It is expected to receive grass deltas.     |
+| Humidity         | Its own grid, static water, published light, published grass, published terrain and water slopes | Nothing. Evaporation and capillary head are its own rules. |
+| Fertility        | Published humidity flux, standing water as a wet source, terrain slope, grass deltas | Nothing. It folds the grass inbox into its own grid. The inbox is empty while grass is a placeholder. |
 | Grass            | Not defined                                              | Not defined. It is expected to push fertility deltas.    |
 
 Two kinds of coupling are distinct:
 
-* A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade. The reader owns the rule. The other layer does not write into it. Grass stays at the height stored in the file, because its own function does not change a cell.
-* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer is designed and is not stored or updated by the engine.
+* A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade, terrain and water slope used as head, humidity used as a carrier. The reader owns the rule. The other layer does not write into it. Grass stays at the height stored in the file, because its own function does not change a cell.
+* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer lives with fertility's function and is not stored in the file. Grass does not push into it yet.

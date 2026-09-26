@@ -22,4 +22,4 @@ The shipped heightmaps use `CLK_NOEV`. Nothing in the engine changes the elevati
 
 ## Dependencies
 
-It reads no other layer. No other simulation function reads it. Static water uses the same cell size, and the water surface is the terrain elevation plus the water depth. That sum is a meaning of the two stored grids, not a step in this function.
+It reads no other layer. Humidity reads the published slope. Static water uses the same cell size, and the water surface is the terrain elevation plus the water depth. That sum is a meaning of the two stored grids, not a step in this function.

@@ -753,6 +753,179 @@ bool world_layer_value(
     return false;
 }
 
+static bool world_layer_cell_size(
+    const world_layer_t *layer,
+    uint32_t *cell_size)
+{
+    if (layer == NULL || layer->payload == NULL || cell_size == NULL) {
+        return false;
+    }
+
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP: {
+            const world_heightmap_payload_t *grid = layer->payload;
+
+            *cell_size = grid->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_STATICWATER: {
+            const world_staticwater_payload_t *grid = layer->payload;
+
+            *cell_size = grid->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            const world_difflight_payload_t *grid = layer->payload;
+
+            *cell_size = grid->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_HUMIDITY: {
+            const world_u16_payload_t *grid = layer->payload;
+
+            *cell_size = grid->cell_size;
+            break;
+        }
+
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS: {
+            const world_u8_payload_t *grid = layer->payload;
+
+            *cell_size = grid->cell_size;
+            break;
+        }
+
+        default:
+            return false;
+    }
+
+    return *cell_size != 0;
+}
+
+static bool world_direction_delta(
+    world_direction_t direction,
+    int *delta_column,
+    int *delta_row)
+{
+    if (delta_column == NULL || delta_row == NULL) {
+        return false;
+    }
+
+    switch (direction) {
+        case WORLD_DIR_EAST:
+            *delta_column = 1;
+            *delta_row = 0;
+            return true;
+
+        case WORLD_DIR_WEST:
+            *delta_column = -1;
+            *delta_row = 0;
+            return true;
+
+        case WORLD_DIR_NORTH:
+            *delta_column = 0;
+            *delta_row = 1;
+            return true;
+
+        case WORLD_DIR_SOUTH:
+            *delta_column = 0;
+            *delta_row = -1;
+            return true;
+    }
+
+    return false;
+}
+
+bool world_layer_gradient(
+    const world_state_t *world,
+    const world_layer_t *layer,
+    uint32_t east_mm,
+    uint32_t north_mm,
+    world_direction_t direction,
+    int64_t *rise,
+    uint32_t *run_mm)
+{
+    uint32_t cell_size;
+    uint32_t index;
+    uint32_t columns;
+    uint32_t rows;
+    uint32_t column;
+    uint32_t row;
+    uint32_t neighbor_index;
+    uint32_t neighbor_column;
+    uint32_t neighbor_row;
+    uint32_t neighbor_east_mm;
+    uint32_t neighbor_north_mm;
+    int delta_column;
+    int delta_row;
+    int64_t here;
+    int64_t neighbor;
+
+    if (world == NULL ||
+        rise == NULL ||
+        run_mm == NULL ||
+        !world_layer_cell_size(layer, &cell_size) ||
+        !world_direction_delta(direction, &delta_column, &delta_row)) {
+        return false;
+    }
+
+    if (world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return false;
+    }
+
+    if (!world_layer_value(world, layer, east_mm, north_mm, &here) ||
+        !world_cell_at(
+            world->width,
+            world->depth,
+            cell_size,
+            east_mm,
+            north_mm,
+            &index)) {
+        return false;
+    }
+
+    columns = world->width / cell_size;
+    rows = world->depth / cell_size;
+    column = index % columns;
+    row = index / columns;
+
+    if (!world_neighbor(
+            world,
+            columns,
+            rows,
+            column,
+            row,
+            delta_column,
+            delta_row,
+            &neighbor_index)) {
+        return false;
+    }
+
+    neighbor_column = neighbor_index % columns;
+    neighbor_row = neighbor_index / columns;
+    neighbor_east_mm =
+        neighbor_column * cell_size + cell_size / 2;
+    neighbor_north_mm =
+        neighbor_row * cell_size + cell_size / 2;
+
+    if (!world_layer_value(
+            world,
+            layer,
+            neighbor_east_mm,
+            neighbor_north_mm,
+            &neighbor)) {
+        return false;
+    }
+
+    *rise = neighbor - here;
+    *run_mm = cell_size;
+    return true;
+}
+
 /*
  * Fold one axis onto a modular edge. count is the number of cells
  * on that axis. The C remainder keeps the sign of the dividend, so

@@ -3,6 +3,7 @@
 #include "world_internal.h"
 #include "simulation_layer_difflight.h"
 #include "simulation_layer_humidity.h"
+#include "simulation_layer_fertility.h"
 
 #include <stdbool.h>
 #include <pthread.h>
@@ -208,8 +209,8 @@ static void publish_layer(world_layer_t *layer)
 }
 
 /*
- * Fertility and grass will read one another from the published
- * grids. This prototype does not change any cell.
+ * Grass will read published humidity, light, and fertility, and
+ * push signed deltas. This prototype does not change any cell.
  */
 static void simulate_coupled_u8(
     world_state_t *world,
@@ -243,6 +244,9 @@ static void simulate_layer(
             break;
 
         case WORLD_LAYER_FERTILITY:
+            simulate_fertility(world, layer, tick);
+            break;
+
         case WORLD_LAYER_GRASS:
             simulate_coupled_u8(world, layer, tick);
             break;

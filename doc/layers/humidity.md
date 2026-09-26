@@ -2,7 +2,7 @@
 
 `TYPE_HUMIDITY`, name `LYR_HUMIDITY`.
 
-Soil humidity. The layer does not receive deltas from other layers. It saturates itself where water stands, diffuses to its own neighbours in proportion to the difference, and evaporates by reading the published radiation and the published grass.
+Soil humidity. The layer does not receive deltas from other layers. It saturates itself where water stands, diffuses to its own neighbours in proportion to the humidity difference plus a gravitational term from the free-surface slope, and evaporates by reading the published radiation and the published grass.
 
 ## Evolution
 
@@ -18,7 +18,7 @@ Each cell is an unsigned 16-bit value. 0 is 0 %. 65535 (`2^16 − 1`) is 100 %. 
 
 The hourly rates use world time. The clock only chooses how often the function runs. A cycle that fires on time covers the layer period. If the call is late, the evaporation interval is the milliseconds since `last_simulation_tick`, so a skipped wake does not drop hours of radiation.
 
-The function owns every change of humidity. Water, light, and grass keep their values. Humidity reads them. Grass is stored and drawn, and its own function does not change the height, so the shade humidity sees is that static field.
+The function owns every change of humidity. Water, light, grass, and the heightmap keep their values. Humidity reads them. Grass is stored and drawn, and its own function does not change the height, so the shade humidity sees is that static field. The heightmap and standing-water slopes do not change either.
 
 ### Latest function
 
@@ -26,14 +26,17 @@ No other layer deposits into humidity, so the cycle does not fold a foreign delt
 
 **1. Standing water.** Every humidity cell whose centre lies on static water of depth greater than 0 is set to 65535. Depth 0 is dry. On the shipped world both grids are 100 mm, so this is the same index. Water is an absolute source: the assignment replaces the cell, and the water layer is not reduced. The same assignment runs again after evaporation, so a longer cycle cannot leave the pond below saturation.
 
-**2. Diffusion.** Orthogonal neighbours only. The flow across one edge is proportional to the difference of the two cells. Soil exchange sums to zero. Standing water is an absolute source: a wet neighbour counts as 65535, and the water cell does not lose the humidity it gives.
+**2. Diffusion.** Orthogonal neighbours only. The flow across one edge is proportional to the humidity difference plus a gravity term from the free-surface slope. Soil exchange sums to zero. Standing water is an absolute source: a wet neighbour counts as 65535, and the water cell does not lose the humidity it gives.
 
-On a 100 mm cell the rate is `0.25 · 3600000/65536` per hour per unit of difference. One on-time `CLK_0016` wake therefore moves a quarter of the difference with each neighbour. That is the largest explicit step that stays stable with four neighbours. A longer cycle is split into steps of that size; each step diffuses, evaporates, and saturates standing water again. A cell of another size moves `(100 / cell_mm)^2` times the 100 mm rate, because the stored value is a concentration. The clock divisor does not appear except as the elapsed hours.
+The slope is `world_layer_gradient` of the heightmap plus the same of standing water, at this humidity cell centre, toward that neighbour. Each rise is scaled to one humidity step: `rise · humidity_cell_mm / run_mm`. `min_height` is not added; it is constant. On the pool lip the terrain rise and the water drop cancel, so the free surface is level with the plain. A missing layer or a missing neighbour contributes 0.
 
 ```text
 rate = (0.25 · 3600000/65536) · (100 / cell_mm)^2
-flow = rate · hours_of_this_step · (neighbour − cell)
+dz   = Δz_heightmap + Δz_water
+flow = rate · hours_of_this_step · ((neighbour − cell) + 65535 · dz / 1500)
 ```
+
+`1500` mm is `HUMIDITY_CAPILLARY_RISE_MM`: at equilibrium, that rise spends the whole humidity range. A neighbour that sits higher, with the same humidity, feeds the lower cell. The hill does not wet unless the cell below is wetter by enough to pay that term.
 
 A missing `CLOSED` edge carries no flow. On a `MODULAR` world the neighbour past an edge is the cell on the opposite edge. How that fold is measured, and how the stored grass changes the steady profile, is in [Modularity and grass](#modularity-and-grass). The net added to a cell is rounded to the nearest integer and clamped to 0..65535.
 
@@ -118,10 +121,10 @@ The shipped `world-po-mo-fer-hu-gr-v3.bin` starts the pool at saturation and the
 
 | Other layer       | Role in this function                                      |
 | ----------------- | ---------------------------------------------------------- |
-| Static water      | Absolute source. Wet cells are set to 65535. Water is unchanged. |
+| Static water      | Absolute source. Wet cells are set to 65535. Water is unchanged. The depth gradient is added to the terrain slope for the free-surface head. |
 | Diffuse daylight  | Published irradiance. Sampled, not pushed by the light function. |
 | Grass             | Published height, as the evaporation divisor. Grass is unchanged. |
-| Fertility         | None.                                                      |
-| Heightmap         | None.                                                      |
+| Fertility         | None. Fertility reads this layer; humidity does not read fertility. |
+| Heightmap         | Published slope, via `world_layer_gradient`. Humidity does not change elevation. |
 
 Humidity writes no other layer.
