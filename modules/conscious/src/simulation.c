@@ -3,7 +3,7 @@
 #include "world_internal.h"
 #include "simulation_layer_difflight.h"
 #include "simulation_layer_humidity.h"
-#include "simulation_layer_fertility.h"
+#include "simulation_layer_grassage.h"
 #include "debug.h"
 
 #include <stdbool.h>
@@ -110,7 +110,8 @@ static void layer_grids(
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             world_u8_payload_t *grid = layer->payload;
 
             *published = grid->published;
@@ -201,7 +202,8 @@ static void publish_layer(world_state_t *world, world_layer_t *layer)
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             world_u8_payload_t *grid = layer->payload;
 
             grid->published = grid->pending;
@@ -255,8 +257,13 @@ static void simulate_layer(
         case WORLD_LAYER_GRASS:
             simulate_coupled_u8(world, layer, tick);
             break;
+
+        case WORLD_LAYER_GRASSAGE:
+            simulate_grassage(world, layer, tick);
+            break;
     }
 
+    world_clamp_layer(world, layer);
     layer->last_simulation_tick = tick;
 }
 
@@ -308,6 +315,9 @@ static const char *debug_layer_tag(world_layer_type_t type)
 
         case WORLD_LAYER_GRASS:
             return "grass";
+
+        case WORLD_LAYER_GRASSAGE:
+            return "grassage";
 
         default:
             return "?";

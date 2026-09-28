@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Add humidity, fertility, and grass to the pool world.
+Add humidity, fertility, grass, and grass age to the pool world.
 
 Reads data/world-pool-mountain-v3.bin and writes
 data/world-po-mo-fer-hu-gr-v3.bin. The source file is not modified.
@@ -10,7 +10,8 @@ Humidity is a 10 cm grid of uint16 (storage ST16). Cells on standing
 water start saturated (65535); the rest start at 0. Fertility
 is a 10 cm grid of uint8 zeros. Grass is the same uint8 grid: 255 at
 the pool edge and inside it, falling linearly to 0 at 5 m outside
-that edge. All three use clock CLK_0016.
+that edge. Humidity, fertility, and grass use clock CLK_0016.
+Grass age is an empty uint8 grid on CLK_0026.
 
 The pool matches create_world_v3_pool_mountain.py: centre 13.6 m east
 and 10.0 m north, radius 1 m.
@@ -29,12 +30,14 @@ LAYER_MAGIC = b"_LYR"
 STORAGE_U8 = b"ST_8"
 STORAGE_U16 = b"ST16"
 CLOCK_EVERY_MINUTE = b"CLK_0016"
+CLOCK_GRASS_AGE = b"CLK_0026"
 CELL_SIZE_MM = 100
 
 LAYERS = (
-    (b"TYPE_HUMIDITY", b"LYR_HUMIDITY"),
-    (b"TYPE_FERTILITY", b"LYR_FERTILITY"),
-    (b"TYPE_GRASS", b"LYR_GRASS"),
+    (b"TYPE_HUMIDITY", b"LYR_HUMIDITY", CLOCK_EVERY_MINUTE),
+    (b"TYPE_FERTILITY", b"LYR_FERTILITY", CLOCK_EVERY_MINUTE),
+    (b"TYPE_GRASS", b"LYR_GRASS", CLOCK_EVERY_MINUTE),
+    (b"TYPE_GRASSAGE", b"LYR_GRASSAGE", CLOCK_GRASS_AGE),
 )
 
 POOL_EAST_MM = 13_600
@@ -105,12 +108,12 @@ def humidity_initial(water_depths):
     return values
 
 
-def layer_block(type_name, layer_name, columns, rows, water_depths=None):
+def layer_block(type_name, layer_name, clock, columns, rows, water_depths=None):
     block = bytearray()
     block += LAYER_MAGIC
     block += padded(type_name, 16)
     block += padded(layer_name, 16)
-    block += CLOCK_EVERY_MINUTE
+    block += clock
     block += struct.pack(">Q", 0)
     if type_name == b"TYPE_HUMIDITY":
         block += STORAGE_U16
@@ -153,17 +156,22 @@ def main():
 
     output = bytearray(data)
 
-    for type_name, layer_name in LAYERS:
+    for type_name, layer_name, clock in LAYERS:
         output += layer_block(
             type_name,
             layer_name,
+            clock,
             columns,
             rows,
             water_depths=water_depths,
         )
 
     target.write_bytes(output)
-    grass = output[-columns * rows:]
+    grass = bytes(
+        grass_height(column, row)
+        for row in range(rows)
+        for column in range(columns)
+    )
     humidity_values = struct.unpack(
         ">" + "H" * (columns * rows),
         humidity_initial(water_depths),

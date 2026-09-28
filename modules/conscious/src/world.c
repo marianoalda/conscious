@@ -196,7 +196,8 @@ static void world_free_layer(world_layer_t *layer)
             free(grid->published);
             free(grid->pending);
         } else if (layer->type == WORLD_LAYER_FERTILITY ||
-                   layer->type == WORLD_LAYER_GRASS) {
+                   layer->type == WORLD_LAYER_GRASS ||
+                   layer->type == WORLD_LAYER_GRASSAGE) {
             world_u8_payload_t *grid = layer->payload;
 
             free(grid->published);
@@ -246,6 +247,7 @@ static world_error_t world_append_layer(
     world->layers = grown;
     world->layers[world->layer_count] = layer;
     world->layer_count++;
+    world_clamp_layer(world, layer);
 
     return WORLD_OK;
 }
@@ -426,6 +428,161 @@ static void fill_u32_slopes(
                     (int64_t)published[neighbor_index] -
                     (int64_t)published[index];
             }
+        }
+    }
+}
+
+uint8_t world_clamp_u8(int64_t value)
+{
+    if (value < 0) {
+        return 0;
+    }
+
+    if (value > (int64_t)WORLD_U8_MAX) {
+        return (uint8_t)WORLD_U8_MAX;
+    }
+
+    return (uint8_t)value;
+}
+
+uint16_t world_clamp_u16(int64_t value)
+{
+    if (value < 0) {
+        return 0;
+    }
+
+    if (value > (int64_t)WORLD_U16_MAX) {
+        return (uint16_t)WORLD_U16_MAX;
+    }
+
+    return (uint16_t)value;
+}
+
+uint32_t world_clamp_u32(int64_t value, uint32_t hi)
+{
+    if (value < 0) {
+        return 0;
+    }
+
+    if (value > (int64_t)hi) {
+        return hi;
+    }
+
+    return (uint32_t)value;
+}
+
+static uint64_t world_grid_cell_count(
+    const world_state_t *world,
+    uint32_t cell_size)
+{
+    if (world == NULL ||
+        cell_size == 0 ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return 0;
+    }
+
+    return
+        (uint64_t)(world->width / cell_size) *
+        (uint64_t)(world->depth / cell_size);
+}
+
+static void clamp_u32_hi(
+    uint32_t *cells,
+    uint64_t count,
+    uint32_t hi)
+{
+    uint64_t i;
+
+    if (cells == NULL) {
+        return;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (cells[i] > hi) {
+            cells[i] = hi;
+        }
+    }
+}
+
+static void clamp_u16_hi(
+    uint16_t *cells,
+    uint64_t count,
+    uint16_t hi)
+{
+    uint64_t i;
+
+    if (cells == NULL) {
+        return;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (cells[i] > hi) {
+            cells[i] = hi;
+        }
+    }
+}
+
+static void clamp_u8_hi(
+    uint8_t *cells,
+    uint64_t count,
+    uint8_t hi)
+{
+    uint64_t i;
+
+    if (cells == NULL) {
+        return;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (cells[i] > hi) {
+            cells[i] = hi;
+        }
+    }
+}
+
+void world_clamp_layer(
+    const world_state_t *world,
+    world_layer_t *layer)
+{
+    uint64_t count;
+
+    if (world == NULL || layer == NULL || layer->payload == NULL) {
+        return;
+    }
+
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP:
+        case WORLD_LAYER_STATICWATER:
+            return;
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            world_difflight_payload_t *grid = layer->payload;
+
+            count = world_grid_cell_count(world, grid->cell_size);
+            clamp_u32_hi(grid->published, count, grid->max_irradiance);
+            clamp_u32_hi(grid->pending, count, grid->max_irradiance);
+            return;
+        }
+
+        case WORLD_LAYER_HUMIDITY: {
+            world_u16_payload_t *grid = layer->payload;
+
+            count = world_grid_cell_count(world, grid->cell_size);
+            clamp_u16_hi(grid->published, count, (uint16_t)WORLD_U16_MAX);
+            clamp_u16_hi(grid->pending, count, (uint16_t)WORLD_U16_MAX);
+            return;
+        }
+
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
+            world_u8_payload_t *grid = layer->payload;
+
+            count = world_grid_cell_count(world, grid->cell_size);
+            clamp_u8_hi(grid->published, count, (uint8_t)WORLD_U8_MAX);
+            clamp_u8_hi(grid->pending, count, (uint8_t)WORLD_U8_MAX);
+            return;
         }
     }
 }
@@ -693,7 +850,7 @@ world_error_t world_append_u16_layer(
 }
 
 /*
- * Fertility and grass. cell_size is 10 cm.
+ * Fertility, grass height, and grass age. cell_size is 10 cm.
  * On success the layer owns published and a pending copy.
  * On failure the caller still owns published.
  */
@@ -709,7 +866,8 @@ world_error_t world_append_u8_layer(
     world_error_t error;
 
     if (type != WORLD_LAYER_FERTILITY &&
-        type != WORLD_LAYER_GRASS) {
+        type != WORLD_LAYER_GRASS &&
+        type != WORLD_LAYER_GRASSAGE) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
@@ -896,7 +1054,8 @@ bool world_layer_value(
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             const world_u8_payload_t *grid = layer->payload;
 
             if (grid->published == NULL) {
@@ -960,7 +1119,8 @@ static bool world_layer_cell_size(
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             const world_u8_payload_t *grid = layer->payload;
 
             *cell_size = grid->cell_size;

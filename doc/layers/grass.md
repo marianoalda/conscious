@@ -10,16 +10,16 @@ The shipped grass world starts at 255 on the pool and inside it, and falls in a 
 
 The layer was added empty, then filled with that ring so the viewer could show it. The [heightmap viewer](../../modules/heightmap-view/README.md) paints the cell green with opacity `height / 255` over the brown terrain. Water is drawn afterwards, so grass under the pool is hidden. Humidity is drawn last, as a blue sheet below the heightmap zero.
 
-The trophic sketch, not a function definition: grass would be born, grow, and die from fertility, humidity, nearby grass, and radiation. Growth would spend fertility. Death would return more biomass than growth had taken, because the plant builds mass from water, air, and light. The height is both the stored state and the stand-in for that biomass. A later herbivore would lower the height without triggering the death return. The cell stays one byte. A daily step is enough for a change of a few millimetres; the slow diffusion that needs more than eight bits is fertility, not grass.
+The trophic sketch, not a function definition: grass would be born, grow, and die from fertility, humidity, nearby grass, and radiation. Growth would spend fertility. Death would return more biomass than growth had taken, because the plant builds mass from water, air, and light. Old-age death already does that return; see [grass age](grass-age.md). The height is both the stored state and the stand-in for that biomass. A later herbivore would lower the height without triggering the death return. The cell stays one byte. A daily step is enough for a change of a few millimetres; the slow diffusion that needs more than eight bits is fertility, not grass.
 
-Fertility already folds a signed inbox. The rates waiting there are `FERTILITY_UPTAKE_PER_MM` (1) on growth and `FERTILITY_RETURN_PER_MM` (2) on death. Grass does not push those deltas yet.
+Fertility already folds a signed inbox. The rates waiting there are `FERTILITY_UPTAKE_PER_MM` (1) on growth and `FERTILITY_RETURN_PER_MM` (2) on death. Grass age of old age pushes `GRASS_DEATH_FERTILITY_RETURN` (510), twice the soil budget to grow to 255 mm. Growth does not run yet.
 
 ## Simulation
 
-**Placeholder.** `simulate_coupled_u8` does not change a cell. Birth, growth, and death have no step sequence.
+**Placeholder.** `simulate_coupled_u8` does not grow a cell. Birth and growth have no step sequence. Old-age death is [grass age](grass-age.md): that function zeros the height when a living cell reaches age 255.
 
 ## Dependencies
 
-Humidity reads the published height as a divisor on evaporation: 1 at height 0 and 0.5 at height 255. Humidity does not change grass. No function writes this layer.
+Humidity reads the published height as a divisor on evaporation: 1 at height 0 and 0.5 at height 255. Humidity does not change grass. Grass age writes height 0 on death of old age.
 
 The sketch says grass would read published humidity, published daylight, nearby grass, and fertility including deltas not yet folded. It would push a negative fertility delta when it grows and a positive one when it dies.

@@ -893,6 +893,17 @@ static world_error_t load_one_layer_v3(
 
     if (memcmp(
             layer_type,
+            WORLD_LAYER_TYPE_GRASSAGE,
+            strlen(WORLD_LAYER_TYPE_GRASSAGE)) == 0) {
+        return deserialize_u8_layer_v3(
+            file,
+            world,
+            WORLD_LAYER_NAME_GRASSAGE,
+            WORLD_LAYER_GRASSAGE);
+    }
+
+    if (memcmp(
+            layer_type,
             WORLD_LAYER_TYPE_GRASS,
             strlen(WORLD_LAYER_TYPE_GRASS)) == 0) {
         return deserialize_u8_layer_v3(
@@ -1469,7 +1480,8 @@ static world_error_t write_layer_v3(
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             const world_u8_payload_t *grid = layer->payload;
             const char *type_name;
             const char *layer_name;
@@ -1477,6 +1489,9 @@ static world_error_t write_layer_v3(
             if (layer->type == WORLD_LAYER_FERTILITY) {
                 type_name = WORLD_LAYER_TYPE_FERTILITY;
                 layer_name = WORLD_LAYER_NAME_FERTILITY;
+            } else if (layer->type == WORLD_LAYER_GRASSAGE) {
+                type_name = WORLD_LAYER_TYPE_GRASSAGE;
+                layer_name = WORLD_LAYER_NAME_GRASSAGE;
             } else {
                 type_name = WORLD_LAYER_TYPE_GRASS;
                 layer_name = WORLD_LAYER_NAME_GRASS;

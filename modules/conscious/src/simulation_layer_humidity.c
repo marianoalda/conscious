@@ -596,14 +596,7 @@ static void humidity_diffuse_step(
             }
 
             value = llround((double)source[index] + delta[index]);
-
-            if (value < 0) {
-                value = 0;
-            } else if (value > (long long)HUMIDITY_SATURATED) {
-                value = HUMIDITY_SATURATED;
-            }
-
-            humidity->pending[index] = (uint16_t)value;
+            humidity->pending[index] = world_clamp_u16(value);
         }
     }
 }
@@ -637,6 +630,10 @@ static double humidity_radiation_fraction(
             east_mm,
             north_mm,
             &irradiance)) {
+        return 0.0;
+    }
+
+    if (irradiance <= 0) {
         return 0.0;
     }
 
@@ -676,11 +673,12 @@ static double humidity_grass_divisor(
             grass_layer,
             east_mm,
             north_mm,
-            &height)) {
+            &height) ||
+        height <= 0) {
         return 1.0;
     }
 
-    return 1.0 - 0.5 * ((double)height / 255.0);
+    return 1.0 - 0.5 * ((double)world_clamp_u8(height) / (double)WORLD_U8_MAX);
 }
 
 /*
@@ -743,7 +741,8 @@ static void humidity_evaporate(
 
             if (grass_cells != NULL) {
                 divisor =
-                    1.0 - 0.5 * ((double)grass_cells[index] / 255.0);
+                    1.0 - 0.5 * ((double)grass_cells[index] /
+                    (double)WORLD_U8_MAX);
             } else {
                 divisor = humidity_grass_divisor(
                     world,

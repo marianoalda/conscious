@@ -20,6 +20,8 @@
 #define WORLD_LAYER_NAME_FERTILITY "LYR_FERTILITY"
 #define WORLD_LAYER_TYPE_GRASS "TYPE_GRASS"
 #define WORLD_LAYER_NAME_GRASS "LYR_GRASS"
+#define WORLD_LAYER_TYPE_GRASSAGE "TYPE_GRASSAGE"
+#define WORLD_LAYER_NAME_GRASSAGE "LYR_GRASSAGE"
 #define WORLD_LAYER_EVOLUTION_NONE "EV_N"
 #define WORLD_LAYER_STORAGE_DENSE "ST_D"
 #define WORLD_LAYER_STORAGE_U8 "ST_8"
@@ -27,6 +29,9 @@
 
 /* Fertility, grass, and humidity use a 10 cm cell. */
 #define WORLD_U8_CELL_MM 100
+/* Inclusive stored ranges. The lower bound is 0. */
+#define WORLD_U8_MAX 255
+#define WORLD_U16_MAX 65535
 
 /* Orthogonal slope buffer: east, west, north, south per cell. */
 #define WORLD_SLOPE_DIRS 4
@@ -75,7 +80,8 @@ typedef enum {
     WORLD_LAYER_DIFFLIGHT,      /* diffuse daylight irradiance */
     WORLD_LAYER_HUMIDITY,       /* 0 dry, 65535 saturated */
     WORLD_LAYER_FERTILITY,      /* 0 sterile, 255 maximum fertility */
-    WORLD_LAYER_GRASS           /* millimetres of height, 0 bare, 255 maximum */
+    WORLD_LAYER_GRASS,          /* millimetres of height, 0 bare, 255 maximum */
+    WORLD_LAYER_GRASSAGE        /* age in days, 0 dead, 255 dies of old age */
 } world_layer_type_t;
 
 /*
@@ -114,9 +120,10 @@ typedef struct {
 } world_difflight_payload_t;
 
 /*
- * Fertility and grass. Each cell is one uint8.
+ * Fertility, grass height, and grass age. Each cell is one uint8.
  * Fertility: 0 is sterile, 255 is the maximum.
  * Grass: the value is millimetres of height, from 0 to 255.
+ * Grass age: the value is days of this layer's clock, from 0 to 255.
  * cell_size is WORLD_U8_CELL_MM.
  */
 typedef struct {
@@ -167,6 +174,11 @@ const char *world_error_string(world_error_t error);
 
 /* Free every layer, including both cell buffers. */
 void world_destroy(world_state_t *world);
+
+/* Inclusive bounds. Unsigned stored cells have lower bound 0. */
+uint8_t world_clamp_u8(int64_t value);
+uint16_t world_clamp_u16(int64_t value);
+uint32_t world_clamp_u32(int64_t value, uint32_t hi);
 
 /*
  * Index of the cell that contains this point, on a grid of cell_size

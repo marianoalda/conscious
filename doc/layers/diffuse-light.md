@@ -26,7 +26,7 @@ Tick 0 is 00:00. One day is 86400000 ms. The time of day is the world tick modul
 | 06:00 to 18:00 | 21600000 .. 64800000 | `sin(π · (t − 21600000) / 43200000)` |
 | 18:00 to 24:00 | 64800000 .. 86400000 | 0 |
 
-Noon, tick 43200000, is fraction 1. The stored cell is that fraction times `max_irradiance`, rounded to the nearest integer. Every cell of the layer receives the same value. The result is written to `pending`. The common step then publishes it. `published` is left unchanged until that swap, so a reader on the same tick still sees the previous irradiance.
+Noon, tick 43200000, is fraction 1. The stored cell is that fraction times `max_irradiance`, rounded to the nearest integer and clamped to 0..`max_irradiance`. Every cell of the layer receives the same value. The result is written to `pending`. The common step then publishes it. `published` is left unchanged until that swap, so a reader on the same tick still sees the previous irradiance.
 
 If `max_irradiance` is 0, every cell stays 0.
 

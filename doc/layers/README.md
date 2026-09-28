@@ -21,12 +21,13 @@ The simulation status of a function is one of:
 | [Humidity](humidity.md)                    | Implemented   | `ST16`, 0 dry, 65535 saturated                   |
 | [Fertility](fertility.md)                  | Implemented   | `ST_8`, 0..255                                    |
 | [Grass](grass.md)                          | Placeholder   | `ST_8`, millimetres of height, 0..255             |
+| [Grass age](grass-age.md)                  | Implemented   | `ST_8`, days, 0 dead, 255 dies                    |
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
 
 ## What the engine does today
 
-On a tick the engine visits each layer whose clock is due. Static water is never due. For every other due layer it copies `published` into `pending`, calls the layer function, and, after every due layer has been called, swaps the two buffers. Other layers read `published` only. The file stores `published` only.
+On a tick the engine visits each layer whose clock is due. Static water is never due. For every other due layer it copies `published` into `pending`, calls the layer function, clamps that layer's published and pending cells to the stored range, and, after every due layer has been called, swaps the two buffers. Other layers read `published` only. The file stores `published` only. The same clamp runs when a grid is appended from a file: daylight is 0..`max_irradiance`, humidity is 0..65535, fertility, grass, and grass age are 0..255. Heightmap and static water are already unsigned 32-bit.
 
 A layer that is not due keeps the values from its last due tick. Readers still see those values.
 
@@ -45,6 +46,7 @@ flowchart LR
   humidity[Humidity]
   fertility[Fertility]
   grass[Grass]
+  grassage[Grass age]
   height[Heightmap]
 
   height --> humidity
@@ -54,7 +56,9 @@ flowchart LR
   height --> fertility
   water --> fertility
   humidity --> fertility
-  grass -.-> fertility
+  grassage --> fertility
+  grass --> grassage
+  grassage --> grass
   humidity -.-> grass
   light -.-> grass
   fertility -.-> grass
@@ -71,13 +75,14 @@ The [heightmap viewer](../../modules/heightmap-view/README.md) reads published g
 | Static water     | Nothing. It does not run.                                | Nothing                                                   |
 | Diffuse daylight | The world age                                            | Nothing. It does not evaporate humidity.                  |
 | Humidity         | Its own grid, static water, published light, published grass, published terrain and water slopes | Nothing. Evaporation and capillary head are its own rules. |
-| Fertility        | Published humidity flux, standing water as a wet source, terrain slope, grass deltas | Nothing. It folds the grass inbox into its own grid. The inbox is empty while grass is a placeholder. |
-| Grass            | Not defined                                              | Not defined. It is expected to push fertility deltas.    |
+| Fertility        | Published humidity flux, standing water as a wet source, terrain slope, grass deltas | Nothing. It folds the grass inbox into its own grid. |
+| Grass            | Not defined for growth. Height is zeroed by grass age on death of old age. | Not defined for growth. |
+| Grass age        | Published grass height                                   | Zeros grass height and posts a fertility death delta. |
 
 Two kinds of coupling are distinct:
 
-* A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade, terrain and water slope used as head, humidity used as a carrier. The reader owns the rule. The other layer does not write into it. Grass stays at the height stored in the file, because its own function does not change a cell.
-* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer lives with fertility's function and is not stored in the file. Grass does not push into it yet.
+* A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade, terrain and water slope used as head, humidity used as a carrier. The reader owns the rule. The other layer does not write into it.
+* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer lives with fertility's function and is not stored in the file. Grass age of old age already pushes the death return. Growth does not.
 
 ### Clock divisors on coupled layers
 

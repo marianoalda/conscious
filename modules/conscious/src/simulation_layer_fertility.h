@@ -38,7 +38,7 @@ void simulate_fertility(
  * Grass will push a signed delta at this world point. Negative is
  * uptake. Positive is death. The value sits until the next
  * fertility wake folds it. A missing fertility layer is a no-op.
- * Grass does not call this yet.
+ * Grass age of old age pushes GRASS_DEATH_FERTILITY_RETURN.
  */
 void fertility_add_grass_delta(
     const world_state_t *world,

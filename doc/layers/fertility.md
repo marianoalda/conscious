@@ -22,7 +22,7 @@ The function owns every change of the fertility grid. Humidity, water, and the h
 
 The step has already copied `published` into `pending`. The operations below write `pending`. `published` stays as it was until every due layer has finished reading.
 
-**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Growth will subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death will add `FERTILITY_RETURN_PER_MM` (2) per millimetre. The inbox is then zero. Grass is not running yet, so this step is a no-op except for the remainder.
+**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Growth will subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death of old age already adds `GRASS_DEATH_FERTILITY_RETURN` (510), twice the soil budget to grow to 255 mm. The inbox is then zero. Growth does not run yet.
 
 **2. Standing flood.** Drought does not change the stored number. In a single channel, biome death becomes nutrient in the same cell, so the net is zero. What dryness does is close the factory: a later grass function would not grow, and grass that dies would be the N pulse. Waterlogging is different. Above 85 % of saturation the cell loses up to 2 % of its store per day to anaerobic gas:
 
@@ -63,7 +63,7 @@ The heightmap viewer does not paint this layer.
 | Humidity          | Published field. The flux across each edge is the carrier. Same clock as this layer; a different divisor repeats the flux walk, see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). |
 | Static water      | Wet cells count as humidity 65535 when computing that flux. Water is unchanged. |
 | Heightmap         | Published slope, through humidity's free-surface head.     |
-| Grass             | Signed inbox, folded here. Empty while grass is a placeholder. Grass is not read as a height. |
+| Grass             | Signed inbox, folded here. Old-age death posts `GRASS_DEATH_FERTILITY_RETURN`. Grass height is not read. |
 | Diffuse daylight  | None.                                                      |
 
 Fertility writes no other layer. The grass inbox is not part of the file.

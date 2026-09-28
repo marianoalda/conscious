@@ -69,10 +69,10 @@ void simulate_difflight(
 
     if (scaled <= 0.0) {
         irradiance = 0;
-    } else if (scaled >= (double)UINT32_MAX) {
-        irradiance = UINT32_MAX;
     } else {
-        irradiance = (uint32_t)llround(scaled);
+        irradiance = world_clamp_u32(
+            (int64_t)llround(scaled),
+            light->max_irradiance);
     }
 
     if (light->pending == NULL) {

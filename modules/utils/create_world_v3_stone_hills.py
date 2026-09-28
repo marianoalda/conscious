@@ -4,7 +4,7 @@
 Create a 100 m × 100 m modular world with stone hills, a pool, and grass.
 
     World:              100 m × 100 m, modular
-    Cell size:          10 cm (heightmap, water, humidity, fertility, grass)
+    Cell size:          10 cm (heightmap, water, humidity, fertility, grass, grass age)
     Cells:              1000 × 1000
     Plain:              1 m elevation, 12 m flat on every edge so the
                         terrain matches across a modular wrap
@@ -12,6 +12,7 @@ Create a 100 m × 100 m modular world with stone hills, a pool, and grass.
     Pool:               1 m radius on the eastern inner plain, 50 cm deep
     Static water:       50 cm in that cut only
     Grass:              255 on the pool, falling to 0 at 5 m past the rim
+    Grass age:          empty, CLK_0026
     Humidity:           saturated on standing water, dry elsewhere
     Fertility:          empty
     Diffuse light:      one cell covering the world, CLK_0018
@@ -59,6 +60,7 @@ STORAGE_U16 = b"ST16"
 CLOCK_NOEV = b"CLK_NOEV"
 CLOCK_DIFFLIGHT = b"CLK_0018"
 CLOCK_U8 = b"CLK_0016"
+CLOCK_GRASS_AGE = b"CLK_0026"
 
 WATER_MIN_DEPTH_MM = 0
 WATER_POOL_DEPTH_MM = 500
@@ -316,6 +318,17 @@ def create_world(output_path, offsets, water, grass, humidity):
         )
         file.write(bytes(grass))
 
+        write_layer_header(
+            file,
+            b"TYPE_GRASSAGE",
+            b"LYR_GRASSAGE",
+            CLOCK_GRASS_AGE,
+            STORAGE_U8,
+            CELL_SIZE_MM,
+            0,
+        )
+        file.write(bytes(len(grass)))
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
@@ -373,6 +386,7 @@ def main():
         f"  Grass:     {sum(height > 0 for height in grass)} cells, "
         f"{min(grass)}..{max(grass)} mm"
     )
+    print("  Grass age: 0 on CLK_0026")
     print(
         "  Humidity:  saturated "
         f"{sum(value == HUMIDITY_SATURATED for value in humidity)} "

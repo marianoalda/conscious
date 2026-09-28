@@ -52,6 +52,9 @@ static const char *layer_type_name(world_layer_type_t type)
         case WORLD_LAYER_GRASS:
             return WORLD_LAYER_TYPE_GRASS;
 
+        case WORLD_LAYER_GRASSAGE:
+            return WORLD_LAYER_TYPE_GRASSAGE;
+
         default:
             return "unknown";
     }
@@ -77,6 +80,9 @@ static const char *layer_stored_name(world_layer_type_t type)
 
         case WORLD_LAYER_GRASS:
             return WORLD_LAYER_NAME_GRASS;
+
+        case WORLD_LAYER_GRASSAGE:
+            return WORLD_LAYER_NAME_GRASSAGE;
 
         default:
             return "unknown";
@@ -200,7 +206,8 @@ static void print_loaded_world(const world_state_t *world)
         }
 
         if ((layer->type == WORLD_LAYER_FERTILITY ||
-             layer->type == WORLD_LAYER_GRASS) &&
+             layer->type == WORLD_LAYER_GRASS ||
+             layer->type == WORLD_LAYER_GRASSAGE) &&
             layer->payload != NULL) {
             const world_u8_payload_t *grid = layer->payload;
 
@@ -361,7 +368,8 @@ static bool compute_layer_stats(
         }
 
         case WORLD_LAYER_FERTILITY:
-        case WORLD_LAYER_GRASS: {
+        case WORLD_LAYER_GRASS:
+        case WORLD_LAYER_GRASSAGE: {
             const world_u8_payload_t *grid = layer->payload;
 
             if (grid->published == NULL ||

@@ -66,6 +66,16 @@ void world_refresh_slopes(
     const world_state_t *world,
     world_layer_t *layer);
 
+/*
+ * Clamp published and pending to the layer's stored range.
+ * Daylight is 0..max_irradiance. Humidity is 0..65535.
+ * Fertility, grass, and grass age are 0..255.
+ * Heightmap and static water are already uint32.
+ */
+void world_clamp_layer(
+    const world_state_t *world,
+    world_layer_t *layer);
+
 /* Version loaders. v0 has no payload. v1 and v2 append one heightmap. v3 appends every layer in the file. */
 world_error_t world_v0_load(
     FILE *file,

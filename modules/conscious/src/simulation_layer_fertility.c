@@ -602,21 +602,14 @@ static void fertility_store(
         }
 
         if (work[i] >= (double)FERTILITY_MAX) {
-            fertility->pending[i] = (uint8_t)FERTILITY_MAX;
+            fertility->pending[i] = world_clamp_u8((int64_t)FERTILITY_MAX);
             fertility_carry[i] = 0.0;
             continue;
         }
 
         rounded = llround(work[i]);
-
-        if (rounded < 0) {
-            rounded = 0;
-        } else if (rounded > (long long)FERTILITY_MAX) {
-            rounded = FERTILITY_MAX;
-        }
-
-        fertility->pending[i] = (uint8_t)rounded;
-        fertility_carry[i] = work[i] - (double)rounded;
+        fertility->pending[i] = world_clamp_u8(rounded);
+        fertility_carry[i] = work[i] - (double)fertility->pending[i];
     }
 }
 
