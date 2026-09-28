@@ -14,7 +14,7 @@ The cell size divides the world width and the world depth. The shipped worlds us
 
 Version 1 stored this grid as the whole world. Version 2 added the layer clock. Version 3 kept the same grid and allowed further layers after it. A file still has to contain one heightmap to be written back.
 
-The shipped heightmaps use `CLK_NOEV`. Nothing in the engine changes the elevation.
+The shipped heightmaps use `CLK_NOEV`. Nothing in the engine changes the elevation. The runtime keeps a four-direction slope buffer of the published grid (east, west, north, south). It is not in the file. Humidity and fertility read it instead of recomputing the neighbour rise on every edge.
 
 ## Simulation
 
@@ -22,4 +22,4 @@ The shipped heightmaps use `CLK_NOEV`. Nothing in the engine changes the elevati
 
 ## Dependencies
 
-It reads no other layer. Humidity reads the published slope. Static water uses the same cell size, and the water surface is the terrain elevation plus the water depth. That sum is a meaning of the two stored grids, not a step in this function.
+It reads no other layer. Humidity and fertility read the published slope buffer. Static water uses the same cell size, and the water surface is the terrain elevation plus the water depth. That sum is a meaning of the two stored grids, not a step in this function.

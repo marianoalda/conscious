@@ -28,7 +28,7 @@ No other layer deposits into humidity, so the cycle does not fold a foreign delt
 
 **2. Diffusion.** Orthogonal neighbours only. The flow across one edge is proportional to the humidity difference plus a gravity term from the free-surface slope. Soil exchange sums to zero. Standing water is an absolute source: a wet neighbour counts as 65535, and the water cell does not lose the humidity it gives.
 
-The slope is `world_layer_gradient` of the heightmap plus the same of standing water, at this humidity cell centre, toward that neighbour. Each rise is scaled to one humidity step: `rise · humidity_cell_mm / run_mm`. `min_height` is not added; it is constant. On the pool lip the terrain rise and the water drop cancel, so the free surface is level with the plain. A missing layer or a missing neighbour contributes 0.
+The slope is the published rise of the heightmap plus standing water, at this humidity cell centre, toward that neighbour. Those layers keep a four-direction buffer filled at load (and after a publish). Humidity reads that buffer by cell index when the grids share a cell size. `world_layer_gradient` is the same rise, computed on demand, when the buffer is missing or the cell sizes do not match. Each rise is scaled to one humidity step: `rise · humidity_cell_mm / run_mm`. `min_height` is not added; it is constant. On the pool lip the terrain rise and the water drop cancel, so the free surface is level with the plain. A missing layer or a missing neighbour contributes 0.
 
 ```text
 rate = (0.25 · 3600000/65536) · (100 / cell_mm)^2
@@ -125,6 +125,6 @@ The shipped `world-po-mo-fer-hu-gr-v3.bin` starts the pool at saturation and the
 | Diffuse daylight  | Published irradiance. Sampled, not pushed by the light function. |
 | Grass             | Published height, as the evaporation divisor. Grass is unchanged. |
 | Fertility         | None. Fertility reads this layer; humidity does not read fertility. |
-| Heightmap         | Published slope, via `world_layer_gradient`. Humidity does not change elevation. |
+| Heightmap         | Published slope buffer of the stored grid. Humidity does not change elevation. |
 
 Humidity writes no other layer.

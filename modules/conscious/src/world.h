@@ -28,6 +28,9 @@
 /* Fertility, grass, and humidity use a 10 cm cell. */
 #define WORLD_U8_CELL_MM 100
 
+/* Orthogonal slope buffer: east, west, north, south per cell. */
+#define WORLD_SLOPE_DIRS 4
+
 #define WORLD_MODULARITY_CLOSED_VALUE "CLOSED"
 #define WORLD_MODULARITY_MODULAR_VALUE "MODULAR"
 
@@ -87,6 +90,12 @@ typedef struct {
     int32_t min_height;     /* millimetres; elevation = min_height + cell */
     uint32_t *published;
     uint32_t *pending;
+    /*
+     * Orthogonal rise of published, four values per cell (E,W,N,S).
+     * Not in the file. Rebuilt when the published grid is filled
+     * or swapped. A missing neighbour is 0.
+     */
+    int64_t *slope;
 } world_heightmap_payload_t;
 
 typedef struct {
@@ -94,6 +103,7 @@ typedef struct {
     int32_t min_depth;      /* millimetres; depth = min_depth + cell */
     uint32_t *published;    /* 0 is dry ground */
     uint32_t *pending;
+    int64_t *slope;         /* same layout as the heightmap slope buffer */
 } world_staticwater_payload_t;
 
 typedef struct {

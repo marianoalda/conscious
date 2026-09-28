@@ -58,6 +58,14 @@ world_error_t world_append_difflight_layer(
     uint32_t max_irradiance,
     uint32_t *published);
 
+/*
+ * Rebuild the orthogonal slope buffer of a heightmap or static-water
+ * layer from its published grid. No-op for other types.
+ */
+void world_refresh_slopes(
+    const world_state_t *world,
+    world_layer_t *layer);
+
 /* Version loaders. v0 has no payload. v1 and v2 append one heightmap. v3 appends every layer in the file. */
 world_error_t world_v0_load(
     FILE *file,

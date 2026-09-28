@@ -2,6 +2,7 @@
 #include "world_io.h"
 #include "world_internal.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -177,11 +178,13 @@ static void world_free_layer(world_layer_t *layer)
 
             free(heightmap->published);
             free(heightmap->pending);
+            free(heightmap->slope);
         } else if (layer->type == WORLD_LAYER_STATICWATER) {
             world_staticwater_payload_t *water = layer->payload;
 
             free(water->published);
             free(water->pending);
+            free(water->slope);
         } else if (layer->type == WORLD_LAYER_DIFFLIGHT) {
             world_difflight_payload_t *light = layer->payload;
 
@@ -311,6 +314,152 @@ static world_error_t allocate_pending_grid(
     return WORLD_OK;
 }
 
+static bool world_direction_delta(
+    world_direction_t direction,
+    int *delta_column,
+    int *delta_row);
+
+static const world_direction_t world_slope_dirs[WORLD_SLOPE_DIRS] = {
+    WORLD_DIR_EAST,
+    WORLD_DIR_WEST,
+    WORLD_DIR_NORTH,
+    WORLD_DIR_SOUTH
+};
+
+static world_error_t allocate_slope_buffer(
+    const world_state_t *world,
+    uint32_t cell_size,
+    int64_t **slope)
+{
+    uint64_t cell_count;
+    uint64_t values;
+
+    if (slope == NULL) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    *slope = NULL;
+
+    if (cell_size == 0 ||
+        world == NULL ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    cell_count =
+        (uint64_t)(world->width / cell_size) *
+        (uint64_t)(world->depth / cell_size);
+    values = cell_count * (uint64_t)WORLD_SLOPE_DIRS;
+
+    if (values > SIZE_MAX / sizeof(int64_t)) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    *slope = calloc((size_t)values, sizeof(int64_t));
+
+    if (*slope == NULL) {
+        return WORLD_ERROR_FILE;
+    }
+
+    return WORLD_OK;
+}
+
+static void fill_u32_slopes(
+    const world_state_t *world,
+    uint32_t cell_size,
+    const uint32_t *published,
+    int64_t *slope)
+{
+    uint32_t columns;
+    uint32_t rows;
+    uint32_t row;
+    uint32_t column;
+    int dir;
+
+    if (world == NULL ||
+        published == NULL ||
+        slope == NULL ||
+        cell_size == 0 ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return;
+    }
+
+    columns = world->width / cell_size;
+    rows = world->depth / cell_size;
+
+    for (row = 0; row < rows; row++) {
+        for (column = 0; column < columns; column++) {
+            uint32_t index;
+
+            index = row * columns + column;
+
+            for (dir = 0; dir < WORLD_SLOPE_DIRS; dir++) {
+                int delta_column;
+                int delta_row;
+                uint32_t neighbor_index;
+                uint64_t slope_index;
+
+                slope_index =
+                    (uint64_t)index * (uint64_t)WORLD_SLOPE_DIRS +
+                    (uint64_t)dir;
+
+                if (!world_direction_delta(
+                        world_slope_dirs[dir],
+                        &delta_column,
+                        &delta_row) ||
+                    !world_neighbor(
+                        world,
+                        columns,
+                        rows,
+                        column,
+                        row,
+                        delta_column,
+                        delta_row,
+                        &neighbor_index)) {
+                    slope[slope_index] = 0;
+                    continue;
+                }
+
+                slope[slope_index] =
+                    (int64_t)published[neighbor_index] -
+                    (int64_t)published[index];
+            }
+        }
+    }
+}
+
+void world_refresh_slopes(
+    const world_state_t *world,
+    world_layer_t *layer)
+{
+    if (world == NULL || layer == NULL || layer->payload == NULL) {
+        return;
+    }
+
+    if (layer->type == WORLD_LAYER_HEIGHTMAP) {
+        world_heightmap_payload_t *grid = layer->payload;
+
+        fill_u32_slopes(
+            world,
+            grid->cell_size,
+            grid->published,
+            grid->slope);
+        return;
+    }
+
+    if (layer->type == WORLD_LAYER_STATICWATER) {
+        world_staticwater_payload_t *grid = layer->payload;
+
+        fill_u32_slopes(
+            world,
+            grid->cell_size,
+            grid->published,
+            grid->slope);
+    }
+}
+
 /*
  * Takes ownership of published when it succeeds, and allocates pending.
  * On failure the caller still owns published.
@@ -348,6 +497,14 @@ world_error_t world_append_heightmap_layer(
         return error;
     }
 
+    error = allocate_slope_buffer(world, cell_size, &payload->slope);
+
+    if (error != WORLD_OK) {
+        free(payload->pending);
+        free(payload);
+        return error;
+    }
+
     error = world_append_layer(
         world,
         WORLD_LAYER_HEIGHTMAP,
@@ -357,10 +514,12 @@ world_error_t world_append_heightmap_layer(
 
     if (error != WORLD_OK) {
         free(payload->pending);
+        free(payload->slope);
         free(payload);
         return error;
     }
 
+    world_refresh_slopes(world, world->layers[world->layer_count - 1]);
     return WORLD_OK;
 }
 
@@ -397,6 +556,14 @@ world_error_t world_append_staticwater_layer(
         return error;
     }
 
+    error = allocate_slope_buffer(world, cell_size, &payload->slope);
+
+    if (error != WORLD_OK) {
+        free(payload->pending);
+        free(payload);
+        return error;
+    }
+
     error = world_append_layer(
         world,
         WORLD_LAYER_STATICWATER,
@@ -406,10 +573,12 @@ world_error_t world_append_staticwater_layer(
 
     if (error != WORLD_OK) {
         free(payload->pending);
+        free(payload->slope);
         free(payload);
         return error;
     }
 
+    world_refresh_slopes(world, world->layers[world->layer_count - 1]);
     return WORLD_OK;
 }
 

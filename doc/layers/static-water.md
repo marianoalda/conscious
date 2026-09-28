@@ -9,7 +9,7 @@ depth   = min_depth + stored_offset
 surface = terrain_elevation + depth
 ```
 
-`min_depth` is zero or positive. A stored depth of 0 is dry ground. The cell size is the heightmap's cell size. A water block without a heightmap is invalid. The clock on disk is `CLK_NOEV`.
+`min_depth` is zero or positive. A stored depth of 0 is dry ground. The cell size is the heightmap's cell size. A water block without a heightmap is invalid. The clock on disk is `CLK_NOEV`. The runtime keeps the same four-direction slope buffer as the heightmap. It is not in the file.
 
 On the pool world the floor of the pool is the heightmap minimum, the plain is 500 mm above that floor, and the water is 500 mm deep on the pool cells only.
 

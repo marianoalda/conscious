@@ -4,10 +4,13 @@
 #include "simulation_layer_difflight.h"
 #include "simulation_layer_humidity.h"
 #include "simulation_layer_fertility.h"
+#include "debug.h"
 
 #include <stdbool.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -146,7 +149,7 @@ static void mirror_published(const world_state_t *world, world_layer_t *layer)
 }
 
 /* Make the tick's grid visible. Called after every due layer has read. */
-static void publish_layer(world_layer_t *layer)
+static void publish_layer(world_state_t *world, world_layer_t *layer)
 {
     void *published;
     void *pending;
@@ -206,6 +209,8 @@ static void publish_layer(world_layer_t *layer)
             break;
         }
     }
+
+    world_refresh_slopes(world, layer);
 }
 
 /*
@@ -283,17 +288,105 @@ static bool layer_is_due(
     return (tick & (period - 1)) == 0;
 }
 
+static const char *debug_layer_tag(world_layer_type_t type)
+{
+    switch (type) {
+        case WORLD_LAYER_HEIGHTMAP:
+            return "height";
+
+        case WORLD_LAYER_STATICWATER:
+            return "water";
+
+        case WORLD_LAYER_DIFFLIGHT:
+            return "light";
+
+        case WORLD_LAYER_HUMIDITY:
+            return "humidity";
+
+        case WORLD_LAYER_FERTILITY:
+            return "fertility";
+
+        case WORLD_LAYER_GRASS:
+            return "grass";
+
+        default:
+            return "?";
+    }
+}
+
+static double debug_timespec_ms(
+    const struct timespec *start,
+    const struct timespec *end)
+{
+    return (double)(end->tv_sec - start->tv_sec) * 1000.0 +
+           (double)(end->tv_nsec - start->tv_nsec) / 1000000.0;
+}
+
+static void debug_simulation_beat(world_tick_t tick)
+{
+    static int started;
+    static world_tick_t last_tick;
+    static struct timespec last_time;
+    struct timespec now;
+    double elapsed;
+
+    if (!debug_on()) {
+        return;
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+
+    if (!started) {
+        started = 1;
+        last_tick = tick;
+        last_time = now;
+        return;
+    }
+
+    elapsed =
+        (double)(now.tv_sec - last_time.tv_sec) +
+        (double)(now.tv_nsec - last_time.tv_nsec) / 1000000000.0;
+
+    if (elapsed < 1.0) {
+        return;
+    }
+
+    debug_log(
+        "sim  tick=%" PRIu64 "  delta=%" PRIu64 "  wall=%.3fs  %.1f tick/s",
+        tick,
+        tick - last_tick,
+        elapsed,
+        (double)(tick - last_tick) / elapsed);
+
+    last_tick = tick;
+    last_time = now;
+}
+
 static void simulate_step(simulation_t *simulation)
 {
     world_state_t *world;
     world_tick_t tick;
     uint32_t i;
     struct timespec duration;
+    struct timespec step_start;
+    struct timespec step_end;
+    struct timespec layer_start;
+    struct timespec layer_end;
     uint64_t seconds;
     uint64_t remainder_us;
+    int tracing;
+    char due[128];
+    size_t due_len;
 
     world = simulation->world;
     tick = simulation->world_tick;
+    tracing = debug_on();
+    due[0] = '\0';
+    due_len = 0;
+
+    if (tracing) {
+        clock_gettime(CLOCK_MONOTONIC, &step_start);
+    }
 
     if (world != NULL && world->layers != NULL) {
         for (i = 0; i < world->layer_count; i++) {
@@ -303,8 +396,43 @@ static void simulate_step(simulation_t *simulation)
                 continue;
             }
 
+            if (tracing && due_len + 1 < sizeof(due)) {
+                int written;
+
+                if (due_len > 0) {
+                    due[due_len++] = ',';
+                    due[due_len] = '\0';
+                }
+
+                written = snprintf(
+                    due + due_len,
+                    sizeof(due) - due_len,
+                    "%s",
+                    debug_layer_tag(layer->type));
+
+                if (written > 0) {
+                    due_len += (size_t)written;
+
+                    if (due_len >= sizeof(due)) {
+                        due_len = sizeof(due) - 1;
+                    }
+                }
+            }
+
+            if (tracing) {
+                debug_clock(&layer_start);
+            }
+
             mirror_published(world, layer);
             simulate_layer(world, layer, tick);
+
+            if (tracing) {
+                debug_clock(&layer_end);
+                debug_log(
+                    "prof layer %s %.1fms",
+                    debug_layer_tag(layer->type),
+                    debug_ms(&layer_start, &layer_end));
+            }
         }
 
         /*
@@ -319,7 +447,22 @@ static void simulate_step(simulation_t *simulation)
                 continue;
             }
 
-            publish_layer(layer);
+            publish_layer(world, layer);
+        }
+    }
+
+    if (tracing) {
+        double wall_ms;
+
+        clock_gettime(CLOCK_MONOTONIC, &step_end);
+        wall_ms = debug_timespec_ms(&step_start, &step_end);
+
+        if (wall_ms >= 10.0) {
+            debug_log(
+                "step tick=%" PRIu64 " wall=%.1fms due=%s",
+                tick,
+                wall_ms,
+                due[0] != '\0' ? due : "-");
         }
     }
 
@@ -383,6 +526,8 @@ static void *simulation_run(void *arg)
 
         /* the tick is considered done AFTER the simulation is done */
         simulation->world_tick++;
+
+        debug_simulation_beat(simulation->world_tick);
 
         if (simulation->stop_armed &&
             simulation->world_tick >= simulation->stop_tick) {
@@ -463,6 +608,8 @@ int simulation_pause(simulation_t *simulation)
 
     pthread_mutex_unlock(&simulation->mutex);
 
+    debug_log("sim  pause at tick=%" PRIu64, simulation_get_world_tick(simulation));
+
     return 0;
 }
 
@@ -477,6 +624,8 @@ int simulation_resume(simulation_t *simulation)
 
     pthread_mutex_unlock(&simulation->mutex);
 
+    debug_log("sim  resume at tick=%" PRIu64, simulation_get_world_tick(simulation));
+
     return 0;
 }
 
@@ -484,6 +633,8 @@ int simulation_resume_for(
     simulation_t *simulation,
     world_tick_t steps)
 {
+    world_tick_t until;
+
     pthread_mutex_lock(&simulation->mutex);
 
     if (steps > UINT64_MAX - simulation->world_tick) {
@@ -491,13 +642,19 @@ int simulation_resume_for(
         return -1;
     }
 
-    simulation->stop_tick = simulation->world_tick + steps;
+    until = simulation->world_tick + steps;
+    simulation->stop_tick = until;
     simulation->stop_armed = true;
     simulation->requested_state = SIMULATION_RUNNING;
 
     pthread_cond_broadcast(&simulation->condition);
 
     pthread_mutex_unlock(&simulation->mutex);
+
+    debug_log(
+        "sim  resume_for steps=%" PRIu64 " until=%" PRIu64,
+        steps,
+        until);
 
     return 0;
 }

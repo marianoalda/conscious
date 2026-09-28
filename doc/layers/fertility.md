@@ -33,14 +33,14 @@ loss  = fertility · 0.02 · flood · days
 
 `H` is the published humidity of this cell, not forced to saturation by standing water. A missing humidity layer skips the loss.
 
-**3. Humidity drag.** Half of the cell (`FERTILITY_HUMIDITY_DRAG`, 0.5) is mobile. The rest stays. Across each orthogonal edge the humidity kernel of this step is reused: the same rate, the same capillary head, the same standing-water source. The humidity that crosses the edge carries mobile fertility in proportion to how much of the source cell's water that flux is:
+**3. Humidity drag.** Half of the cell (`FERTILITY_HUMIDITY_DRAG`, 0.5) is mobile. The rest stays. Across each orthogonal edge the humidity kernel of this step is reused: the same rate, the same capillary head, the same standing-water source, and the same free-surface slope buffer. The humidity that crosses the edge carries mobile fertility in proportion to how much of the source cell's water that flux is:
 
 ```text
 flow    = humidity_edge_flow(H_here, H_neighbour, dz, coefficient)
 carried = 0.5 · fertility_source · min(1, |flow| / H_source)
 ```
 
-Soil exchange of that carried amount sums to zero. A source at humidity 0 carries nothing. A wake longer than one stable humidity step is split the same way humidity is. The slope is `humidity_free_surface_dz` at this fertility cell centre. On `MODULAR` the neighbour past an edge is the cell on the opposite edge. On `CLOSED` a missing side carries nothing.
+Soil exchange of that carried amount sums to zero. A source at humidity 0 carries nothing. A wake longer than one stable humidity step is split the same way humidity is. The slope is the same heightmap and water buffer humidity uses, at this fertility cell centre. On `MODULAR` the neighbour past an edge is the cell on the opposite edge. On `CLOSED` a missing side carries nothing.
 
 The net is rounded to the nearest integer and clamped to 0..255. The unused fraction stays in the remainder until the next wake.
 

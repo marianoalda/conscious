@@ -32,7 +32,7 @@ A layer that is not due keeps the values from its last due tick. Readers still s
 
 `MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity and fertility are the callers today. The flow each computes from that neighbour is its own rule.
 
-`world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer. `world_layer_gradient` is the stored rise from that cell to its orthogonal neighbour on the same layer, and the millimetres between those centres. It does not interpret.
+`world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer. `world_layer_gradient` is the stored rise from that cell to its orthogonal neighbour on the same layer, and the millimetres between those centres. It does not interpret. Heightmap and static water also keep a derived four-direction slope buffer of the published grid. It is not in the file. Humidity and fertility read it when they share that cell size.
 
 ## Dependencies
 

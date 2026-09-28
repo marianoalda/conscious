@@ -10,11 +10,13 @@
 #include <termios.h>
 #include <sys/select.h>
 #include <inttypes.h>
+#include <math.h>
 #include <time.h>
 
 #include "configuration.h"
 #include "world.h"
 #include "simulation.h"
+#include "debug.h"
 
 typedef enum {
     ON_HOLD,
@@ -23,6 +25,7 @@ typedef enum {
 
 typedef struct {
     int verbose;
+    int debug;
     const char *config_file;
     const char *name;
     const char *validate_world_file;
@@ -48,6 +51,32 @@ static const char *layer_type_name(world_layer_type_t type)
 
         case WORLD_LAYER_GRASS:
             return WORLD_LAYER_TYPE_GRASS;
+
+        default:
+            return "unknown";
+    }
+}
+
+static const char *layer_stored_name(world_layer_type_t type)
+{
+    switch (type) {
+        case WORLD_LAYER_HEIGHTMAP:
+            return WORLD_LAYER_NAME_HEIGHTMAP;
+
+        case WORLD_LAYER_STATICWATER:
+            return WORLD_LAYER_NAME_STATICWATER;
+
+        case WORLD_LAYER_DIFFLIGHT:
+            return WORLD_LAYER_NAME_DIFFLIGHT;
+
+        case WORLD_LAYER_HUMIDITY:
+            return WORLD_LAYER_NAME_HUMIDITY;
+
+        case WORLD_LAYER_FERTILITY:
+            return WORLD_LAYER_NAME_FERTILITY;
+
+        case WORLD_LAYER_GRASS:
+            return WORLD_LAYER_NAME_GRASS;
 
         default:
             return "unknown";
@@ -184,6 +213,240 @@ static void print_loaded_world(const world_state_t *world)
     }
 }
 
+typedef struct {
+    uint64_t n;
+    uint64_t nonzero;
+    double min;
+    double max;
+    double mean;
+    double m2;
+} layer_stats_acc_t;
+
+static void layer_stats_add(layer_stats_acc_t *acc, double value)
+{
+    double delta;
+    double delta2;
+
+    if (acc->n == 0) {
+        acc->min = value;
+        acc->max = value;
+    } else {
+        if (value < acc->min) {
+            acc->min = value;
+        }
+
+        if (value > acc->max) {
+            acc->max = value;
+        }
+    }
+
+    acc->n++;
+
+    if (value != 0.0) {
+        acc->nonzero++;
+    }
+
+    delta = value - acc->mean;
+    acc->mean += delta / (double)acc->n;
+    delta2 = value - acc->mean;
+    acc->m2 += delta * delta2;
+}
+
+static bool layer_cell_count(
+    const world_state_t *world,
+    uint32_t cell_size,
+    uint64_t *count)
+{
+    if (world == NULL ||
+        count == NULL ||
+        cell_size == 0 ||
+        world->width % cell_size != 0 ||
+        world->depth % cell_size != 0) {
+        return false;
+    }
+
+    *count =
+        (uint64_t)(world->width / cell_size) *
+        (uint64_t)(world->depth / cell_size);
+    return true;
+}
+
+/*
+ * Published-grid statistics for one layer. min, mean, max, and the
+ * population standard deviation cover every cell, including zeros.
+ */
+static bool compute_layer_stats(
+    const world_state_t *world,
+    const world_layer_t *layer,
+    const char **name,
+    uint64_t *nonzero,
+    double *min,
+    double *mean,
+    double *max,
+    double *stddev)
+{
+    layer_stats_acc_t acc = {0};
+    uint64_t cell_count;
+    uint64_t i;
+
+    if (world == NULL ||
+        layer == NULL ||
+        layer->payload == NULL ||
+        name == NULL ||
+        nonzero == NULL ||
+        min == NULL ||
+        mean == NULL ||
+        max == NULL ||
+        stddev == NULL) {
+        return false;
+    }
+
+    *name = layer_stored_name(layer->type);
+
+    switch (layer->type) {
+        case WORLD_LAYER_HEIGHTMAP: {
+            const world_heightmap_payload_t *grid = layer->payload;
+
+            if (grid->published == NULL ||
+                !layer_cell_count(world, grid->cell_size, &cell_count)) {
+                return false;
+            }
+
+            for (i = 0; i < cell_count; i++) {
+                layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        case WORLD_LAYER_STATICWATER: {
+            const world_staticwater_payload_t *grid = layer->payload;
+
+            if (grid->published == NULL ||
+                !layer_cell_count(world, grid->cell_size, &cell_count)) {
+                return false;
+            }
+
+            for (i = 0; i < cell_count; i++) {
+                layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        case WORLD_LAYER_DIFFLIGHT: {
+            const world_difflight_payload_t *grid = layer->payload;
+
+            if (grid->published == NULL ||
+                !layer_cell_count(world, grid->cell_size, &cell_count)) {
+                return false;
+            }
+
+            for (i = 0; i < cell_count; i++) {
+                layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        case WORLD_LAYER_HUMIDITY: {
+            const world_u16_payload_t *grid = layer->payload;
+
+            if (grid->published == NULL ||
+                !layer_cell_count(world, grid->cell_size, &cell_count)) {
+                return false;
+            }
+
+            for (i = 0; i < cell_count; i++) {
+                layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        case WORLD_LAYER_FERTILITY:
+        case WORLD_LAYER_GRASS: {
+            const world_u8_payload_t *grid = layer->payload;
+
+            if (grid->published == NULL ||
+                !layer_cell_count(world, grid->cell_size, &cell_count)) {
+                return false;
+            }
+
+            for (i = 0; i < cell_count; i++) {
+                layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        default:
+            return false;
+    }
+
+    if (acc.n == 0) {
+        return false;
+    }
+
+    *nonzero = acc.nonzero;
+    *min = acc.min;
+    *mean = acc.mean;
+    *max = acc.max;
+    *stddev = sqrt(acc.m2 / (double)acc.n);
+    return true;
+}
+
+static void print_operator_commands(main_state_t state)
+{
+    if (state == SIMULATING) {
+        fputs("[P]ausar - [Q]uitar - [E]stadísticas", stdout);
+    } else {
+        fputs(
+            "[S]eguir - [I]ncremento - snapsho[T] - [Q]uitar - [E]stadísticas",
+            stdout);
+    }
+}
+
+static void print_selected_layer_stats(
+    const world_state_t *world,
+    int stats_layer)
+{
+    const world_layer_t *layer;
+    const char *name;
+    uint64_t nonzero;
+    double min;
+    double mean;
+    double max;
+    double stddev;
+
+    if (stats_layer < 0 ||
+        world == NULL ||
+        world->layers == NULL ||
+        (uint32_t)stats_layer >= world->layer_count) {
+        return;
+    }
+
+    layer = world->layers[stats_layer];
+
+    if (layer == NULL ||
+        !compute_layer_stats(
+            world,
+            layer,
+            &name,
+            &nonzero,
+            &min,
+            &mean,
+            &max,
+            &stddev)) {
+        printf(" |  %s", layer != NULL ? layer_stored_name(layer->type) : "?");
+        return;
+    }
+
+    printf(
+        " |  %s  nz=%" PRIu64 "  min=%.0f  mean=%.2f  max=%.0f  sd=%.2f",
+        name,
+        nonzero,
+        min,
+        mean,
+        max,
+        stddev);
+}
+
 /************************************
  * Print help
  */
@@ -193,6 +456,7 @@ static void print_help(const char *program)
     printf("Options:\n");
     printf("  -h, --help              Show this help\n");
     printf("  -v, --verbose           Enable verbose output\n");
+    printf("  -d, --debug             Log operator rate and simulation steps to stderr\n");
     printf("  -c, --config FILE       Configuration file\n");
     printf("  -n, --name NAME         Node/process name\n");
     printf("  -w, --validate-world FILE Validate world file\n");
@@ -239,6 +503,7 @@ static int parse_arguments(int argc, char **argv, options_t *options)
     static const struct option long_options[] = {
         {"help",    no_argument,       NULL, 'h'},
         {"verbose", no_argument,       NULL, 'v'},
+        {"debug",   no_argument,       NULL, 'd'},
         {"config",  required_argument, NULL, 'c'},
         {"name",    required_argument, NULL, 'n'},
         {"validate-world", required_argument, NULL, 'w'},
@@ -247,7 +512,7 @@ static int parse_arguments(int argc, char **argv, options_t *options)
 
     int option;
 
-    while ((option = getopt_long(argc, argv, "hvc:n:w:", long_options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "hvdc:n:w:", long_options, NULL)) != -1) {
         switch (option) {
         case 'h':
             print_help(argv[0]);
@@ -255,6 +520,10 @@ static int parse_arguments(int argc, char **argv, options_t *options)
 
         case 'v':
             options->verbose = 1;
+            break;
+
+        case 'd':
+            options->debug = 1;
             break;
 
         case 'c':
@@ -569,6 +838,7 @@ int main(int argc, char **argv)
 {
     options_t options = {
         .verbose = 0,
+        .debug = 0,
         .config_file = NULL,
         .name = NULL,
         .validate_world_file = NULL
@@ -594,6 +864,11 @@ int main(int argc, char **argv)
     if (parse_arguments(argc, argv, &options) != 0) {
         fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
         return EXIT_FAILURE;
+    }
+
+    debug_set(options.debug);
+    if (options.debug) {
+        debug_log("debug enabled (stderr); status line stays on stdout");
     }
 
     /*
@@ -740,8 +1015,10 @@ int main(int argc, char **argv)
 
     world_tick_t previous_world_tick = 0;
     struct timespec previous_time;
+    double last_ticks_per_second = 0.0;
     bool incremental_active = false;
     world_tick_t incremental_stop_tick = 0;
+    int stats_layer = -1;
 
     if (simulation_init(
             &simulation,
@@ -815,28 +1092,60 @@ int main(int argc, char **argv)
                 (double)(current_time.tv_sec - previous_time.tv_sec) +
                 (double)(current_time.tv_nsec - previous_time.tv_nsec) / 1000000000.0;
 
-            ticks_per_second = 0.0;
-
-            if (elapsed_seconds > 0.0) {
-                ticks_per_second =
-                    (double)(current_world_tick - previous_world_tick) /
-                    elapsed_seconds;
-            }
+            ticks_per_second = last_ticks_per_second;
 
             /*
-             * One tick is one millisecond of world time, so the rate in
-             * ms/s divided by 1000 is how many times faster than real time.
+             * CLK_0016 humidity/fertility steps on a large grid
+             * take seconds. world_tick does not move until that
+             * step returns, so a 1 s sample can see delta 0.
+             * Publishing that 0 would alternate with the burst of
+             * empty ticks that follows. Hold the last rate and
+             * leave the window open until ticks move, so the stall
+             * sits in the denominator of the next sample.
              */
-            time_factor = ticks_per_second / 1000.0;
+            if (elapsed_seconds >= 0.5) {
+                world_tick_t delta_ticks;
 
-            previous_world_tick = current_world_tick;
-            previous_time = current_time;
+                delta_ticks = current_world_tick - previous_world_tick;
+
+                if (delta_ticks > 0) {
+                    ticks_per_second =
+                        (double)delta_ticks / elapsed_seconds;
+                    last_ticks_per_second = ticks_per_second;
+                    previous_world_tick = current_world_tick;
+                    previous_time = current_time;
+                    debug_log(
+                        "ui   rate apply elapsed=%.4fs ticks=%" PRIu64
+                        " delta=%" PRIu64 " show=%.1f",
+                        elapsed_seconds,
+                        current_world_tick,
+                        delta_ticks,
+                        ticks_per_second);
+                } else {
+                    debug_log(
+                        "ui   rate stall elapsed=%.4fs ticks=%" PRIu64
+                        " show=%.1f",
+                        elapsed_seconds,
+                        current_world_tick,
+                        ticks_per_second);
+                }
+            } else {
+                debug_log(
+                    "ui   rate keep  elapsed=%.4fs ticks=%" PRIu64
+                    " delta=%" PRIu64 " show=%.1f",
+                    elapsed_seconds,
+                    current_world_tick,
+                    current_world_tick - previous_world_tick,
+                    ticks_per_second);
+            }
+
+            /* One tick is one millisecond of world time. */
+            time_factor = ticks_per_second / 1000.0;
 
             if (incremental_active) {
                 printf(
                     "\r[SIMULATING]  %.1f %s/s  x%.1f  age: %" PRIu64 " %s  "
-                    "until: %" PRIu64 " %s  "
-                    "[p] pause  [q] shutdown\033[K",
+                    "until: %" PRIu64 " %s",
                     ticks_per_second,
                     WORLD_TICK_UNIT,
                     time_factor,
@@ -846,8 +1155,7 @@ int main(int argc, char **argv)
                     WORLD_TICK_UNIT);
             } else {
                 printf(
-                    "\r[SIMULATING]  %.1f %s/s  x%.1f  age: %" PRIu64 " %s  "
-                    "[p] pause  [q] shutdown\033[K",
+                    "\r[SIMULATING]  %.1f %s/s  x%.1f  age: %" PRIu64 " %s",
                     ticks_per_second,
                     WORLD_TICK_UNIT,
                     time_factor,
@@ -855,10 +1163,13 @@ int main(int argc, char **argv)
                     WORLD_TICK_UNIT);
             }
         } else {
-            printf(
-                "\r[ON HOLD]     [s] resume  [i] increment  "
-                "[w] snapshot  [q] shutdown\033[K");
+            printf("\r[ON HOLD]");
         }
+
+        print_selected_layer_stats(&world, stats_layer);
+        fputs("  ", stdout);
+        print_operator_commands(main_state);
+        fputs("\033[K", stdout);
 
         fflush(stdout);
 
@@ -868,12 +1179,39 @@ int main(int argc, char **argv)
         timeout.tv_sec = 1;
         timeout.tv_usec = 0;
 
-        result = select(
-            STDIN_FILENO + 1,
-            &read_fds,
-            NULL,
-            NULL,
-            &timeout);
+        {
+            struct timespec wait_start;
+            struct timespec wait_end;
+
+            if (debug_on()) {
+                clock_gettime(CLOCK_MONOTONIC, &wait_start);
+            }
+
+            result = select(
+                STDIN_FILENO + 1,
+                &read_fds,
+                NULL,
+                NULL,
+                &timeout);
+
+            if (debug_on()) {
+                double wait;
+
+                clock_gettime(CLOCK_MONOTONIC, &wait_end);
+                wait =
+                    (double)(wait_end.tv_sec - wait_start.tv_sec) +
+                    (double)(wait_end.tv_nsec - wait_start.tv_nsec) /
+                    1000000000.0;
+
+                if (result < 0) {
+                    debug_log("ui   select error wait=%.3fs", wait);
+                } else if (result == 0) {
+                    debug_log("ui   select timeout wait=%.3fs", wait);
+                } else {
+                    debug_log("ui   select ready wait=%.3fs", wait);
+                }
+            }
+        }
 
         if (result < 0) {
             break;
@@ -888,6 +1226,9 @@ int main(int argc, char **argv)
         if (key == EOF) {
             break;
         }
+
+        key = tolower((unsigned char)key);
+        debug_log("ui   key='%c'", key);
 
         if (key == 'q') {
             /* to avoid pausing twice, we rely on the code 
@@ -908,11 +1249,22 @@ int main(int argc, char **argv)
             main_state = ON_HOLD;
             incremental_active = false;
         }
-        else if (key == 'w' && main_state == ON_HOLD) {
+        else if (key == 't' && main_state == ON_HOLD) {
            save_snapshot(
             simulation,
             &world,
             absolute_world_path);
+        }
+        else if (key == 'e') {
+            if (world.layer_count == 0) {
+                stats_layer = -1;
+            } else if (stats_layer + 1 >= (int)world.layer_count) {
+                stats_layer = -1;
+            } else {
+                stats_layer++;
+            }
+
+            debug_log("ui   stats_layer=%d of %" PRIu32, stats_layer, world.layer_count);
         }
         else if (key == 's' && main_state == ON_HOLD) {
             simulation_resume(simulation);

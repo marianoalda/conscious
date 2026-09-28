@@ -1,7 +1,9 @@
 #include "simulation_layer_humidity.h"
 #include "world_internal.h"
+#include "debug.h"
 
 #include <math.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +21,115 @@ static const world_direction_t humidity_directions[4] = {
     WORLD_DIR_SOUTH
 };
 
+static const int64_t *humidity_layer_slope(
+    const world_layer_t *layer,
+    uint32_t *cell_mm)
+{
+    if (cell_mm != NULL) {
+        *cell_mm = 0;
+    }
+
+    if (layer == NULL || layer->payload == NULL) {
+        return NULL;
+    }
+
+    if (layer->type == WORLD_LAYER_HEIGHTMAP) {
+        const world_heightmap_payload_t *grid = layer->payload;
+
+        if (cell_mm != NULL) {
+            *cell_mm = grid->cell_size;
+        }
+
+        return grid->slope;
+    }
+
+    if (layer->type == WORLD_LAYER_STATICWATER) {
+        const world_staticwater_payload_t *grid = layer->payload;
+
+        if (cell_mm != NULL) {
+            *cell_mm = grid->cell_size;
+        }
+
+        return grid->slope;
+    }
+
+    return NULL;
+}
+
+void humidity_slope_cache_bind(
+    const world_state_t *world,
+    uint32_t cell_mm,
+    humidity_slope_cache_t *cache)
+{
+    const world_layer_t *heightmap_layer;
+    const world_layer_t *water_layer;
+    bool height_ok;
+    bool water_ok;
+
+    if (cache == NULL) {
+        return;
+    }
+
+    memset(cache, 0, sizeof(*cache));
+    cache->cell_mm = cell_mm;
+
+    if (world == NULL || cell_mm == 0) {
+        return;
+    }
+
+    heightmap_layer = world_find_layer(world, WORLD_LAYER_HEIGHTMAP);
+    water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
+    cache->height_slope =
+        humidity_layer_slope(heightmap_layer, &cache->height_cell_mm);
+    cache->water_slope =
+        humidity_layer_slope(water_layer, &cache->water_cell_mm);
+
+    height_ok =
+        heightmap_layer == NULL ||
+        (cache->height_slope != NULL && cache->height_cell_mm == cell_mm);
+    water_ok =
+        water_layer == NULL ||
+        (cache->water_slope != NULL && cache->water_cell_mm == cell_mm);
+    cache->by_index = height_ok && water_ok;
+}
+
+int64_t humidity_slope_cache_dz(
+    const humidity_slope_cache_t *cache,
+    uint32_t index,
+    world_direction_t direction)
+{
+    uint32_t dir;
+    uint64_t slot;
+    int64_t dz;
+
+    if (cache == NULL || cache->cell_mm == 0) {
+        return 0;
+    }
+
+    dir = (uint32_t)direction;
+
+    if (dir >= WORLD_SLOPE_DIRS) {
+        return 0;
+    }
+
+    slot = (uint64_t)index * (uint64_t)WORLD_SLOPE_DIRS + (uint64_t)dir;
+    dz = 0;
+
+    if (cache->height_slope != NULL && cache->height_cell_mm != 0) {
+        dz +=
+            (cache->height_slope[slot] * (int64_t)cache->cell_mm) /
+            (int64_t)cache->height_cell_mm;
+    }
+
+    if (cache->water_slope != NULL && cache->water_cell_mm != 0) {
+        dz +=
+            (cache->water_slope[slot] * (int64_t)cache->cell_mm) /
+            (int64_t)cache->water_cell_mm;
+    }
+
+    return dz;
+}
+
 /*
  * Stored rise of this layer, scaled to one humidity cell step.
  * Missing layer, missing neighbour, or run 0: no slope.
@@ -31,11 +142,34 @@ static int64_t humidity_scaled_rise(
     uint32_t north_mm,
     world_direction_t direction)
 {
+    const int64_t *slope;
+    uint32_t layer_cell_mm;
+    uint32_t index;
+    uint32_t dir;
     int64_t rise;
     uint32_t run_mm;
 
     if (layer == NULL || cell_mm == 0) {
         return 0;
+    }
+
+    slope = humidity_layer_slope(layer, &layer_cell_mm);
+    dir = (uint32_t)direction;
+
+    if (slope != NULL &&
+        layer_cell_mm != 0 &&
+        world != NULL &&
+        dir < WORLD_SLOPE_DIRS &&
+        world_cell_at(
+            world->width,
+            world->depth,
+            layer_cell_mm,
+            east_mm,
+            north_mm,
+            &index)) {
+        rise = slope[(uint64_t)index * (uint64_t)WORLD_SLOPE_DIRS +
+                     (uint64_t)dir];
+        return (rise * (int64_t)cell_mm) / (int64_t)layer_cell_mm;
     }
 
     if (!world_layer_gradient(
@@ -240,7 +374,8 @@ static void humidity_diffuse_step(
     double *delta,
     uint32_t columns,
     uint32_t rows,
-    double coefficient)
+    double coefficient,
+    const humidity_slope_cache_t *slopes)
 {
     static const int deltas[4][2] = {
         {1, 0},
@@ -265,6 +400,7 @@ static void humidity_diffuse_step(
             uint32_t north_mm;
             double sum;
             int neighbor;
+            bool need_mm;
 
             index = row * columns + column;
 
@@ -272,12 +408,19 @@ static void humidity_diffuse_step(
                 continue;
             }
 
-            east_mm =
-                column * humidity->cell_size +
-                humidity->cell_size / 2;
-            north_mm =
-                row * humidity->cell_size +
-                humidity->cell_size / 2;
+            need_mm = slopes == NULL || !slopes->by_index;
+            east_mm = 0;
+            north_mm = 0;
+
+            if (need_mm) {
+                east_mm =
+                    column * humidity->cell_size +
+                    humidity->cell_size / 2;
+                north_mm =
+                    row * humidity->cell_size +
+                    humidity->cell_size / 2;
+            }
+
             sum = 0.0;
 
             for (neighbor = 0; neighbor < 4; neighbor++) {
@@ -305,12 +448,21 @@ static void humidity_diffuse_step(
                 }
 
                 direction = humidity_directions[neighbor];
-                dz = humidity_free_surface_dz(
-                    world,
-                    humidity->cell_size,
-                    east_mm,
-                    north_mm,
-                    direction);
+
+                if (slopes != NULL && slopes->by_index) {
+                    dz = humidity_slope_cache_dz(
+                        slopes,
+                        index,
+                        direction);
+                } else {
+                    dz = humidity_free_surface_dz(
+                        world,
+                        humidity->cell_size,
+                        east_mm,
+                        north_mm,
+                        direction);
+                }
+
                 sum += humidity_edge_flow(
                     (int64_t)source[index],
                     (int64_t)neighbor_value,
@@ -526,6 +678,7 @@ void simulate_humidity(
     const world_layer_t *light_layer;
     const world_layer_t *water_layer;
     const world_layer_t *grass_layer;
+    humidity_slope_cache_t slopes;
     uint16_t *source;
     double *delta;
     uint8_t *wet;
@@ -537,6 +690,13 @@ void simulate_humidity(
     double hours;
     double rate;
     double left;
+    struct timespec t0;
+    struct timespec t1;
+    double wet_ms;
+    double diffuse_ms;
+    double evaporate_ms;
+    double saturate_ms;
+    unsigned int substeps;
 
     if (world == NULL ||
         layer == NULL ||
@@ -594,7 +754,13 @@ void simulate_humidity(
     }
 
     water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
+    wet_ms = 0.0;
+    diffuse_ms = 0.0;
+    evaporate_ms = 0.0;
+    saturate_ms = 0.0;
+    substeps = 0;
 
+    debug_clock(&t0);
     for (row = 0; row < rows; row++) {
         for (column = 0; column < columns; column++) {
             uint32_t index;
@@ -608,9 +774,13 @@ void simulate_humidity(
                 row);
         }
     }
+    debug_clock(&t1);
+    wet_ms = debug_ms(&t0, &t1);
 
     light_layer = world_find_layer(world, WORLD_LAYER_DIFFLIGHT);
     grass_layer = world_find_layer(world, WORLD_LAYER_GRASS);
+
+    humidity_slope_cache_bind(world, humidity->cell_size, &slopes);
 
     rate = humidity_diffusion_rate(humidity->cell_size);
     left = hours;
@@ -631,6 +801,7 @@ void simulate_humidity(
             coefficient = HUMIDITY_DIFFUSION_STEP_LIMIT;
         }
 
+        debug_clock(&t0);
         humidity_diffuse_step(
             world,
             humidity,
@@ -639,20 +810,44 @@ void simulate_humidity(
             delta,
             columns,
             rows,
-            coefficient);
+            coefficient,
+            &slopes);
+        debug_clock(&t1);
+        diffuse_ms += debug_ms(&t0, &t1);
+
+        debug_clock(&t0);
         humidity_evaporate(
             world,
             humidity,
             light_layer,
             grass_layer,
             step_hours);
-        humidity_saturate_standing_water(world, humidity);
+        debug_clock(&t1);
+        evaporate_ms += debug_ms(&t0, &t1);
 
+        debug_clock(&t0);
+        humidity_saturate_standing_water(world, humidity);
+        debug_clock(&t1);
+        saturate_ms += debug_ms(&t0, &t1);
+
+        substeps++;
         left -= step_hours;
 
         if (left < 1e-12) {
             break;
         }
+    }
+
+    if (debug_on()) {
+        debug_log(
+            "prof humidity cells=%" PRIu64 " substeps=%u wet=%.1fms "
+            "diffuse=%.1fms evaporate=%.1fms saturate=%.1fms",
+            cell_count,
+            substeps,
+            wet_ms,
+            diffuse_ms,
+            evaporate_ms,
+            saturate_ms);
     }
 
     free(source);

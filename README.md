@@ -32,7 +32,7 @@ The time engine can be suspended. While it runs, one step is one millisecond of 
 
 The world is a repository. It is quantized in cells. Distances are millimetres. One world tick is one millisecond.
 
-In memory the world holds an array of layers. Each layer has its metadata and a payload with two dense grids of the same size. `published` is the grid other layers, the viewer, and the file see. `pending` is the grid filled during the current tick. A step reads `published` only. When every layer that is due has finished reading, the two grids exchange roles. On disk, version 3 stores that published sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell, in W/m², and is the first layer the step updates. Humidity (`TYPE_HUMIDITY`) is a 10 cm grid of 16-bit cells, from 0 (dry) to 65535 (saturated). On its clock it saturates where static water stands, diffuses to orthogonal neighbours in proportion to the humidity difference plus a gravitational term from the published terrain and standing-water slope (1500 mm of rise spends the full range at equilibrium), and evaporates 10 % of the humidity still in the cell per hour at full sun, scaled by the published daylight and by the published grass (height 255 halves the loss). Fertility and grass (`TYPE_FERTILITY`, `TYPE_GRASS`) are 10 cm cells of one byte each. Fertility runs from 0 (sterile) to 255 (maximum). Half of that cell moves with the humidity flux; the rest stays. Standing flood slowly destroys the store; drought does not. Grass is millimetres of height, from 0 to 255. Its simulation function is a prototype and does not change the cells.
+In memory the world holds an array of layers. Each layer has its metadata and a payload with two dense grids of the same size. `published` is the grid other layers, the viewer, and the file see. `pending` is the grid filled during the current tick. Heightmap and static water also keep a four-direction slope buffer of `published`; it is not in the file. A step reads `published` only. When every layer that is due has finished reading, the two grids exchange roles. On disk, version 3 stores that published sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell, in W/m², and is the first layer the step updates. Humidity (`TYPE_HUMIDITY`) is a 10 cm grid of 16-bit cells, from 0 (dry) to 65535 (saturated). On its clock it saturates where static water stands, diffuses to orthogonal neighbours in proportion to the humidity difference plus a gravitational term from the published terrain and standing-water slope (1500 mm of rise spends the full range at equilibrium), and evaporates 10 % of the humidity still in the cell per hour at full sun, scaled by the published daylight and by the published grass (height 255 halves the loss). Fertility and grass (`TYPE_FERTILITY`, `TYPE_GRASS`) are 10 cm cells of one byte each. Fertility runs from 0 (sterile) to 255 (maximum). Half of that cell moves with the humidity flux; the rest stays. Standing flood slowly destroys the store; drought does not. Grass is millimetres of height, from 0 to 255. Its simulation function is a prototype and does not change the cells.
 
 A cell stores an offset above the layer's minimum height:
 
@@ -79,13 +79,15 @@ The simulation runs in its own thread. `main` can pause it and wait until the cu
 From `modules/conscious`:
 
 ```text
-[SIMULATING]  … ms/s  x…  age: … ms   [p] pause  [q] shutdown
-[ON HOLD]     [s] resume  [i] increment  [w] snapshot  [q] shutdown
+[SIMULATING]  … ms/s  x…  age: … ms  [P]ausar - [Q]uitar - [E]stadísticas
+[ON HOLD]  [S]eguir - [I]ncremento - snapsho[T] - [Q]uitar - [E]stadísticas
 ```
 
 The rate is world milliseconds per second of wall time. The factor `x` is that rate divided by 1000: at 10000 ms/s the world runs at x10 relative to real time.
 
-`p` suspends the engine. `s` resumes it. `q` shuts down. `i`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `w`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken. Files under `modules/data` whose name ends in a dot and digits are ignored by git.
+`P` suspends the engine. `S` resumes it. `Q` shuts down. `I`, only while suspended, runs `incremental_steps` milliseconds and then suspends again. The default is 3600000 ms. While that run is in progress the status line shows the age at which it will stop. `T`, only while suspended, writes a snapshot beside the world file. The name is the world path plus the age in milliseconds, for example `world.bin.13987`. The original file is not overwritten. The snapshot is another world file and can be loaded later; its age is the age at which it was taken. Files under `modules/data` whose name ends in a dot and digits are ignored by git.
+
+`E` cycles the published statistics of one layer at a time: off, then each layer in file order, then off again. The line shows the layer name, how many cells are not zero, and the minimum, mean, maximum, and population standard deviation of every stored cell. The values refresh with the status line, so a running world can be watched without a snapshot.
 
 On shutdown the world is written back only if `save_state_on_shutdown` is true. The development configuration leaves that false, so a run does not replace `world.bin`.
 
@@ -105,12 +107,13 @@ Useful options:
 ```text
 -h, --help
 -v, --verbose
+-d, --debug
 -c, --config FILE
 -n, --name NAME
 -w, --validate-world FILE
 ```
 
-`-v` prints the loaded world and each layer, with units. `-w` loads a world file, reports whether it is valid, and exits.
+`-v` prints the loaded world and each layer, with units. `-d` writes a timestamped trace to stderr: how the status-line rate is sampled, how long `select` waited, which key was pressed, simulation pause/resume, one line per second of engine ticks, and any simulation step that took 10 ms or more. Redirect stderr to keep it (`2>debug.log`). `-w` loads a world file, reports whether it is valid, and exits.
 
 `conscious-dev.cfg` starts in `HOLD`, leaves `step_delay_us` unset, and points at `../../data/world.bin`. `config/conscious.cfg` starts in `SIMULATE`, sets `step_delay_us` to 1, and saves the world on shutdown.
 

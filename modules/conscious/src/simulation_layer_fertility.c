@@ -1,9 +1,11 @@
 #include "simulation_layer_fertility.h"
 #include "simulation_layer_humidity.h"
 #include "world_internal.h"
+#include "debug.h"
 
 #include <math.h>
 #include <stdbool.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -412,7 +414,8 @@ static void fertility_advect_step(
     double *work,
     uint32_t columns,
     uint32_t rows,
-    double coefficient)
+    double coefficient,
+    const humidity_slope_cache_t *slopes)
 {
     uint32_t row;
     uint32_t column;
@@ -485,12 +488,21 @@ static void fertility_advect_step(
                     water_layer,
                     neighbor_east_mm,
                     neighbor_north_mm);
-                dz = humidity_free_surface_dz(
-                    world,
-                    fertility->cell_size,
-                    east_mm,
-                    north_mm,
-                    fertility_directions[neighbor]);
+
+                if (slopes != NULL && slopes->by_index) {
+                    dz = humidity_slope_cache_dz(
+                        slopes,
+                        index,
+                        fertility_directions[neighbor]);
+                } else {
+                    dz = humidity_free_surface_dz(
+                        world,
+                        fertility->cell_size,
+                        east_mm,
+                        north_mm,
+                        fertility_directions[neighbor]);
+                }
+
                 flow = humidity_edge_flow(
                     (int64_t)humidity_here,
                     (int64_t)humidity_neighbor,
@@ -583,6 +595,7 @@ void simulate_fertility(
     world_u8_payload_t *fertility;
     const world_layer_t *humidity_layer;
     const world_layer_t *water_layer;
+    humidity_slope_cache_t slopes;
     double *work;
     uint32_t columns;
     uint32_t rows;
@@ -591,6 +604,11 @@ void simulate_fertility(
     double hours;
     double rate;
     double left;
+    struct timespec t0;
+    struct timespec t1;
+    double moisture_ms;
+    double advect_ms;
+    unsigned int substeps;
 
     if (world == NULL ||
         layer == NULL ||
@@ -642,7 +660,12 @@ void simulate_fertility(
 
     humidity_layer = world_find_layer(world, WORLD_LAYER_HUMIDITY);
     water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
+    humidity_slope_cache_bind(world, fertility->cell_size, &slopes);
+    moisture_ms = 0.0;
+    advect_ms = 0.0;
+    substeps = 0;
 
+    debug_clock(&t0);
     fertility_moisture_loss(
         world,
         fertility,
@@ -651,6 +674,8 @@ void simulate_fertility(
         columns,
         rows,
         hours);
+    debug_clock(&t1);
+    moisture_ms = debug_ms(&t0, &t1);
 
     if (hours > 0.0 && humidity_layer != NULL) {
         rate = humidity_diffusion_rate(fertility->cell_size);
@@ -668,6 +693,7 @@ void simulate_fertility(
                 coefficient = HUMIDITY_DIFFUSION_STEP_LIMIT;
             }
 
+            debug_clock(&t0);
             fertility_advect_step(
                 world,
                 fertility,
@@ -676,7 +702,11 @@ void simulate_fertility(
                 work,
                 columns,
                 rows,
-                coefficient);
+                coefficient,
+                &slopes);
+            debug_clock(&t1);
+            advect_ms += debug_ms(&t0, &t1);
+            substeps++;
 
             left -= step_hours;
 
@@ -687,5 +717,16 @@ void simulate_fertility(
     }
 
     fertility_store(fertility, work, cell_count);
+
+    if (debug_on()) {
+        debug_log(
+            "prof fertility cells=%" PRIu64 " substeps=%u moisture=%.1fms "
+            "advect=%.1fms",
+            cell_count,
+            substeps,
+            moisture_ms,
+            advect_ms);
+    }
+
     free(work);
 }

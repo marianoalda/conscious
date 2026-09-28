@@ -25,6 +25,30 @@
 #define HUMIDITY_CAPILLARY_RISE_MM 1500
 
 /*
+ * Heightmap plus standing-water rise for one cell step. Filled
+ * once per wake. by_index is true when those layers share this
+ * cell size, so the inner loop can index the slope buffers.
+ */
+typedef struct {
+    const int64_t *height_slope;
+    const int64_t *water_slope;
+    uint32_t height_cell_mm;
+    uint32_t water_cell_mm;
+    uint32_t cell_mm;
+    bool by_index;
+} humidity_slope_cache_t;
+
+void humidity_slope_cache_bind(
+    const world_state_t *world,
+    uint32_t cell_mm,
+    humidity_slope_cache_t *cache);
+
+int64_t humidity_slope_cache_dz(
+    const humidity_slope_cache_t *cache,
+    uint32_t index,
+    world_direction_t direction);
+
+/*
  * One humidity wake. Reads standing water, published daylight,
  * published grass, and the slope of terrain and standing water.
  * Writes only this layer's pending grid.
