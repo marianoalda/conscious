@@ -647,8 +647,7 @@ static double humidity_radiation_fraction(
 /*
  * 1 with no grass, or height 0. 0.5 when grass is at 255 mm.
  * The shade is linear between those heights. A missing layer
- * leaves the divisor at 1. Grass is only read: its own function
- * does not change the stored height.
+ * leaves the divisor at 1. Humidity reads published height only.
  *
  * The sample is the published cell under this centre. Modularity
  * does not move it. Wrapping is only for a neighbour, through

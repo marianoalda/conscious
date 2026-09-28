@@ -160,6 +160,28 @@ static bool fertility_prepare(
     return fertility_resize(cell_count);
 }
 
+void fertility_add_grass_delta_at(
+    const world_state_t *world,
+    uint32_t index,
+    int32_t delta)
+{
+    const world_u8_payload_t *fertility;
+
+    if (delta == 0) {
+        return;
+    }
+
+    fertility = fertility_payload(world);
+
+    if (fertility == NULL ||
+        !fertility_prepare(world, fertility) ||
+        (uint64_t)index >= grass_delta_count) {
+        return;
+    }
+
+    grass_delta[index] += delta;
+}
+
 void fertility_add_grass_delta(
     const world_state_t *world,
     uint32_t east_mm,
@@ -176,7 +198,6 @@ void fertility_add_grass_delta(
     fertility = fertility_payload(world);
 
     if (fertility == NULL ||
-        !fertility_prepare(world, fertility) ||
         !fertility_index_at(
             world,
             fertility,
@@ -186,7 +207,44 @@ void fertility_add_grass_delta(
         return;
     }
 
-    grass_delta[index] += delta;
+    fertility_add_grass_delta_at(world, index, delta);
+}
+
+static int32_t fertility_sum_available(
+    int64_t published,
+    int32_t unposted)
+{
+    if (published > (int64_t)INT32_MAX - unposted) {
+        return INT32_MAX;
+    }
+
+    if (published < (int64_t)INT32_MIN - unposted) {
+        return INT32_MIN;
+    }
+
+    return (int32_t)published + unposted;
+}
+
+int32_t fertility_available_at(
+    const world_state_t *world,
+    uint32_t index)
+{
+    const world_u8_payload_t *fertility;
+    int32_t unposted;
+
+    fertility = fertility_payload(world);
+
+    if (fertility == NULL ||
+        fertility->published == NULL ||
+        !fertility_prepare(world, fertility) ||
+        (uint64_t)index >= grass_delta_count) {
+        return 0;
+    }
+
+    unposted = grass_delta[index];
+    return fertility_sum_available(
+        (int64_t)fertility->published[index],
+        unposted);
 }
 
 int32_t fertility_available(
@@ -233,15 +291,7 @@ int32_t fertility_available(
         unposted = grass_delta[index];
     }
 
-    if (published > (int64_t)INT32_MAX - unposted) {
-        return INT32_MAX;
-    }
-
-    if (published < (int64_t)INT32_MIN - unposted) {
-        return INT32_MIN;
-    }
-
-    return (int32_t)published + unposted;
+    return fertility_sum_available(published, unposted);
 }
 
 static uint16_t fertility_humidity_at(

@@ -10,8 +10,8 @@ Humidity is a 10 cm grid of uint16 (storage ST16). Cells on standing
 water start saturated (65535); the rest start at 0. Fertility
 is a 10 cm grid of uint8 zeros. Grass is the same uint8 grid: 255 at
 the pool edge and inside it, falling linearly to 0 at 5 m outside
-that edge. Humidity, fertility, and grass use clock CLK_0016.
-Grass age is an empty uint8 grid on CLK_0026.
+that edge. Humidity and fertility use clock CLK_0016.
+Grass uses CLK_0022. Grass age is an empty uint8 grid on CLK_0026.
 
 The pool matches create_world_v3_pool_mountain.py: centre 13.6 m east
 and 10.0 m north, radius 1 m.
@@ -30,13 +30,14 @@ LAYER_MAGIC = b"_LYR"
 STORAGE_U8 = b"ST_8"
 STORAGE_U16 = b"ST16"
 CLOCK_EVERY_MINUTE = b"CLK_0016"
+CLOCK_GRASS = b"CLK_0022"
 CLOCK_GRASS_AGE = b"CLK_0026"
 CELL_SIZE_MM = 100
 
 LAYERS = (
     (b"TYPE_HUMIDITY", b"LYR_HUMIDITY", CLOCK_EVERY_MINUTE),
     (b"TYPE_FERTILITY", b"LYR_FERTILITY", CLOCK_EVERY_MINUTE),
-    (b"TYPE_GRASS", b"LYR_GRASS", CLOCK_EVERY_MINUTE),
+    (b"TYPE_GRASS", b"LYR_GRASS", CLOCK_GRASS),
     (b"TYPE_GRASSAGE", b"LYR_GRASSAGE", CLOCK_GRASS_AGE),
 )
 
@@ -184,6 +185,7 @@ def main():
     )
     print(f"grass cells {sum(value > 0 for value in grass)} of {columns * rows}")
     print(f"grass height {min(grass)}..{max(grass)}")
+    print("grass clock CLK_0022")
     print(f"size {len(output)} bytes")
 
 

@@ -12,19 +12,22 @@
 
 /*
  * Soil fertility spent to grow from height 0 to GRASS_HEIGHT_MAX.
- * Growth, when it runs, subtracts this budget in proportion to
- * millimetres gained. Death of old age returns twice as much:
- * the soil N plus the mass the plant built from photosynthesis.
+ * Birth and growth subtract this budget in proportion to millimetres
+ * gained. Death of old age returns twice the theoretical spend of
+ * the height that dies, not of the millimetres ever grown.
  */
 #define GRASS_SOIL_FERTILITY_TO_MAX \
     ((int32_t)FERTILITY_UPTAKE_PER_MM * (int32_t)GRASS_HEIGHT_MAX)
 #define GRASS_DEATH_FERTILITY_RETURN (2 * GRASS_SOIL_FERTILITY_TO_MAX)
 
+#define grass_death_fertility_return(height) \
+    ((int32_t)FERTILITY_RETURN_PER_MM * (int32_t)(height))
+
 /*
  * One grass-age wake. Living cells (published grass height > 0)
- * gain one day per layer period. Height 0 keeps age at 0. A cell
- * that reaches GRASS_AGE_MAX dies: height goes to 0, age to 0,
- * and fertility receives GRASS_DEATH_FERTILITY_RETURN.
+ * gain one day per layer period, capped at GRASS_AGE_MAX.
+ * Height 0 keeps age at 0. This function does not kill the stand;
+ * grass reads the published age and dies on its own clock.
  */
 void simulate_grassage(
     world_state_t *world,

@@ -34,4 +34,4 @@ If `max_irradiance` is 0, every cell stays 0.
 
 Reads the world age only.
 
-Read by the humidity function, as the radiation that sets evaporation. Grass is expected to read it later for growth. The grass read is not implemented. This function does not push a delta into them: the irradiance remains, and the other layer samples the published value on its own clock.
+Read by the humidity function, as the radiation that sets evaporation. Grass reads it for growth as a fraction of `max_irradiance`. This function does not push a delta into them: the irradiance remains, and the other layer samples the published value on its own clock.

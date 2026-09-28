@@ -20,7 +20,7 @@ The simulation status of a function is one of:
 | [Diffuse daylight](diffuse-light.md)       | Implemented   | `ST_D`, irradiance in W/m²                        |
 | [Humidity](humidity.md)                    | Implemented   | `ST16`, 0 dry, 65535 saturated                   |
 | [Fertility](fertility.md)                  | Implemented   | `ST_8`, 0..255                                    |
-| [Grass](grass.md)                          | Placeholder   | `ST_8`, millimetres of height, 0..255             |
+| [Grass](grass.md)                          | Implemented   | `ST_8`, millimetres of height, 0..255             |
 | [Grass age](grass-age.md)                  | Implemented   | `ST_8`, days, 0 dead, 255 dies                    |
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
@@ -29,9 +29,11 @@ Diffuse daylight was compared by hand with the half-sine curve on the pool world
 
 On a tick the engine visits each layer whose clock is due. Static water is never due. For every other due layer it copies `published` into `pending`, calls the layer function, clamps that layer's published and pending cells to the stored range, and, after every due layer has been called, swaps the two buffers. Other layers read `published` only. The file stores `published` only. The same clamp runs when a grid is appended from a file: daylight is 0..`max_irradiance`, humidity is 0..65535, fertility, grass, and grass age are 0..255. Heightmap and static water are already unsigned 32-bit.
 
+Milliseconds on which no layer is due change nothing. Unless `step_delay_us` is set, the engine jumps `world_tick` to the next due tick, or to an incremental stop. Layers still measure elapsed time from `last_simulation_tick`, so a jump is the same as many empty milliseconds.
+
 A layer that is not due keeps the values from its last due tick. Readers still see those values.
 
-`MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity and fertility are the callers today. The flow each computes from that neighbour is its own rule.
+`MODULAR` is stored. Wrapping belongs to the world, in `world_neighbor`. Any layer that asks for an orthogonal neighbour gets the same answer: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. Humidity, fertility, and grass are the callers today. The flow each computes from that neighbour is its own rule.
 
 `world_layer_value` returns the published cell that contains a world point, as a widened integer. It does not add `min_height` or apply a layer's simulation rule. The function that is running interprets that integer. `world_layer_gradient` is the stored rise from that cell to its orthogonal neighbour on the same layer, and the millimetres between those centres. It does not interpret. Heightmap and static water also keep a derived four-direction slope buffer of the published grid. It is not in the file. When humidity, water, fertility, and grass share a cell size, those functions index the published arrays directly.
 
@@ -56,12 +58,12 @@ flowchart LR
   height --> fertility
   water --> fertility
   humidity --> fertility
-  grassage --> fertility
+  grass --> fertility
   grass --> grassage
   grassage --> grass
-  humidity -.-> grass
-  light -.-> grass
-  fertility -.-> grass
+  humidity --> grass
+  light --> grass
+  fertility --> grass
   height -.-> water
 ```
 
@@ -76,13 +78,13 @@ The [heightmap viewer](../../modules/heightmap-view/README.md) reads published g
 | Diffuse daylight | The world age                                            | Nothing. It does not evaporate humidity.                  |
 | Humidity         | Its own grid, static water, published light, published grass, published terrain and water slopes | Nothing. Evaporation and capillary head are its own rules. |
 | Fertility        | Published humidity flux, standing water as a wet source, terrain slope, grass deltas | Nothing. It folds the grass inbox into its own grid. |
-| Grass            | Not defined for growth. Height is zeroed by grass age on death of old age. | Not defined for growth. |
-| Grass age        | Published grass height                                   | Zeros grass height and posts a fertility death delta. |
+| Grass            | Published humidity, fertility, daylight, grass age, orthogonal neighbours | Spends fertility on birth and growth. Returns `2 · height` on old-age death. Zeros height and age in both buffers. |
+| Grass age        | Published grass height                                   | Nothing. Caps a living cell at 255. |
 
 Two kinds of coupling are distinct:
 
 * A layer may read a value that the other layer keeps publishing: water depth, irradiance, grass height used as shade, terrain and water slope used as head, humidity used as a carrier. The reader owns the rule. The other layer does not write into it.
-* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer lives with fertility's function and is not stored in the file. Grass age of old age already pushes the death return. Growth does not.
+* A layer that consumes a fact by changing its own state has to leave a signed delta for the layer that must receive it. Grass growth and grass death are that case. Humidity has no such inbox. The delta buffer lives with fertility's function and is not stored in the file. Grass posts uptake on birth and growth, and the death return of old age.
 
 ### Clock divisors on coupled layers
 

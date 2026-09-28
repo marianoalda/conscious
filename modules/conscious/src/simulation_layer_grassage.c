@@ -31,23 +31,6 @@ static uint64_t grassage_days(
     return (tick - layer->last_simulation_tick) / period;
 }
 
-static void grassage_zero_height(
-    world_u8_payload_t *grass,
-    uint32_t index)
-{
-    if (grass == NULL) {
-        return;
-    }
-
-    if (grass->pending != NULL) {
-        grass->pending[index] = 0;
-    }
-
-    if (grass->published != NULL) {
-        grass->published[index] = 0;
-    }
-}
-
 void simulate_grassage(
     world_state_t *world,
     world_layer_t *layer,
@@ -55,7 +38,7 @@ void simulate_grassage(
 {
     world_u8_payload_t *age;
     const world_layer_t *grass_layer;
-    world_u8_payload_t *grass;
+    const world_u8_payload_t *grass;
     const uint8_t *height;
     uint64_t days;
     uint32_t columns;
@@ -143,42 +126,7 @@ void simulate_grassage(
         new_age = (uint32_t)age->published[i] + (uint32_t)days;
 
         if (new_age >= (uint32_t)GRASS_AGE_MAX) {
-            age->pending[i] = 0;
-
-            if (same_grid) {
-                grassage_zero_height(grass, (uint32_t)i);
-            } else if (grass != NULL) {
-                uint32_t grass_index;
-
-                east_mm =
-                    (uint32_t)(i % columns) * age->cell_size +
-                    age->cell_size / 2;
-                north_mm =
-                    (uint32_t)(i / columns) * age->cell_size +
-                    age->cell_size / 2;
-
-                if (world_cell_at(
-                        world->width,
-                        world->depth,
-                        grass->cell_size,
-                        east_mm,
-                        north_mm,
-                        &grass_index)) {
-                    grassage_zero_height(grass, grass_index);
-                }
-            }
-
-            east_mm =
-                (uint32_t)(i % columns) * age->cell_size +
-                age->cell_size / 2;
-            north_mm =
-                (uint32_t)(i / columns) * age->cell_size +
-                age->cell_size / 2;
-            fertility_add_grass_delta(
-                world,
-                east_mm,
-                north_mm,
-                GRASS_DEATH_FERTILITY_RETURN);
+            age->pending[i] = (uint8_t)GRASS_AGE_MAX;
             continue;
         }
 

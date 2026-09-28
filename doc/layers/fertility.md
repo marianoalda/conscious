@@ -16,13 +16,13 @@ Each cell is an unsigned 8-bit value. 0 is 0 %. 255 (`FERTILITY_MAX`) is 100 %. 
 
 The hourly rates use world time. The clock only chooses how often the function runs. A cycle that fires on time covers the layer period. If the call is late, the interval is the milliseconds since `last_simulation_tick`.
 
-The function owns every change of the fertility grid. Humidity, water, and the heightmap keep their values. Fertility reads them. Grass does not write this grid. When it later grows or dies it will push a signed delta; this function already folds that inbox at the start of the wake. The inbox stays empty while grass is a placeholder.
+The function owns every change of the fertility grid. Humidity, water, and the heightmap keep their values. Fertility reads them. Grass does not write this grid. Birth, growth, and death of old age push a signed delta; this function folds that inbox at the start of the wake.
 
 ### Latest function
 
 The step has already copied `published` into `pending`. The operations below write `pending`. `published` stays as it was until every due layer has finished reading.
 
-**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Growth will subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death of old age already adds `GRASS_DEATH_FERTILITY_RETURN` (510), twice the soil budget to grow to 255 mm. The inbox is then zero. Growth does not run yet.
+**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Birth and growth subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death of old age adds `FERTILITY_RETURN_PER_MM` (2) times the height that dies. The inbox is then zero.
 
 **2. Standing flood.** Drought does not change the stored number. In a single channel, biome death becomes nutrient in the same cell, so the net is zero. What dryness does is close the factory: a later grass function would not grow, and grass that dies would be the N pulse. Waterlogging is different. Above 85 % of saturation the cell loses up to 2 % of its store per day to anaerobic gas:
 
@@ -46,7 +46,7 @@ The net is rounded to the nearest integer and clamped to 0..255. The unused frac
 
 ### Why this moisture rule
 
-A generic cell cannot raise N and kill the biome as two numbers. Dryness therefore does not subtract from the store. The living part stopping is an activity gate on grass, not a source of sterility. That gate is not applied here: grass does not run. Flood is the exception, because denitrification removes N from the cell as gas.
+A generic cell cannot raise N and kill the biome as two numbers. Dryness therefore does not subtract from the store. The living part stopping is an activity gate on grass, not a source of sterility. Grass does not grow when fertility is 0. Flood is the exception, because denitrification removes N from the cell as gas.
 
 ### Why this rate
 
@@ -63,7 +63,7 @@ The heightmap viewer does not paint this layer.
 | Humidity          | Published field. The flux across each edge is the carrier. Same clock as this layer; a different divisor repeats the flux walk, see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). |
 | Static water      | Wet cells count as humidity 65535 when computing that flux. Water is unchanged. |
 | Heightmap         | Published slope, through humidity's free-surface head.     |
-| Grass             | Signed inbox, folded here. Old-age death posts `GRASS_DEATH_FERTILITY_RETURN`. Grass height is not read. |
+| Grass             | Signed inbox, folded here. Birth and growth subtract one unit per millimetre. Old-age death posts twice the height that dies. Grass height is not read. |
 | Diffuse daylight  | None.                                                      |
 
 Fertility writes no other layer. The grass inbox is not part of the file.

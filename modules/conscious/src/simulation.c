@@ -3,6 +3,7 @@
 #include "world_internal.h"
 #include "simulation_layer_difflight.h"
 #include "simulation_layer_humidity.h"
+#include "simulation_layer_grass.h"
 #include "simulation_layer_grassage.h"
 #include "debug.h"
 
@@ -215,20 +216,6 @@ static void publish_layer(world_state_t *world, world_layer_t *layer)
     world_refresh_slopes(world, layer);
 }
 
-/*
- * Grass will read published humidity, light, and fertility, and
- * push signed deltas. This prototype does not change any cell.
- */
-static void simulate_coupled_u8(
-    world_state_t *world,
-    world_layer_t *layer,
-    world_tick_t tick)
-{
-    (void)world;
-    (void)layer;
-    (void)tick;
-}
-
 static void simulate_layer(
     world_state_t *world,
     world_layer_t *layer,
@@ -255,7 +242,7 @@ static void simulate_layer(
             break;
 
         case WORLD_LAYER_GRASS:
-            simulate_coupled_u8(world, layer, tick);
+            simulate_grass(world, layer, tick);
             break;
 
         case WORLD_LAYER_GRASSAGE:
@@ -293,6 +280,69 @@ static bool layer_is_due(
     period = (world_tick_t)1 << layer->clock.exponent;
 
     return (tick & (period - 1)) == 0;
+}
+
+/*
+ * First tick at or after `tick` on which this layer is due.
+ * CLK_NOEV and static water never return a finite tick.
+ */
+static world_tick_t layer_next_due_tick(
+    const world_layer_t *layer,
+    world_tick_t tick)
+{
+    world_tick_t period;
+    world_tick_t aligned;
+
+    if (layer == NULL ||
+        layer->type == WORLD_LAYER_STATICWATER ||
+        layer->clock.mode != WORLD_CLOCK_DIVISOR ||
+        layer->clock.exponent >= 64) {
+        return UINT64_MAX;
+    }
+
+    period = (world_tick_t)1 << layer->clock.exponent;
+
+    if (period == 0) {
+        return UINT64_MAX;
+    }
+
+    aligned = tick & ~(period - 1);
+
+    if (aligned == tick) {
+        return tick;
+    }
+
+    if (aligned > UINT64_MAX - period) {
+        return UINT64_MAX;
+    }
+
+    return aligned + period;
+}
+
+static world_tick_t world_next_due_tick(
+    const world_state_t *world,
+    world_tick_t tick)
+{
+    world_tick_t next;
+    uint32_t i;
+
+    if (world == NULL || world->layers == NULL) {
+        return UINT64_MAX;
+    }
+
+    next = UINT64_MAX;
+
+    for (i = 0; i < world->layer_count; i++) {
+        world_tick_t layer_next;
+
+        layer_next = layer_next_due_tick(world->layers[i], tick);
+
+        if (layer_next < next) {
+            next = layer_next;
+        }
+    }
+
+    return next;
 }
 
 static const char *debug_layer_tag(world_layer_type_t type)
@@ -536,6 +586,29 @@ static void *simulation_run(void *arg)
 
         /* the tick is considered done AFTER the simulation is done */
         simulation->world_tick++;
+
+        /*
+         * Empty milliseconds change no layer. Jump to the next due
+         * tick so a long incremental run is not one loop per ms.
+         * A configured step delay keeps real-time pacing instead.
+         */
+        if (!simulation->step_delay_set) {
+            world_tick_t next;
+
+            next = world_next_due_tick(
+                simulation->world,
+                simulation->world_tick);
+
+            if (simulation->stop_armed &&
+                simulation->stop_tick < next) {
+                next = simulation->stop_tick;
+            }
+
+            if (next > simulation->world_tick &&
+                next != UINT64_MAX) {
+                simulation->world_tick = next;
+            }
+        }
 
         debug_simulation_beat(simulation->world_tick);
 

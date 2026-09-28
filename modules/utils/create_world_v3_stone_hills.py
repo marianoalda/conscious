@@ -11,7 +11,7 @@ Create a 100 m × 100 m modular world with stone hills, a pool, and grass.
     Hills:              several steep-sided stone mesas in the centre
     Pool:               1 m radius on the eastern inner plain, 50 cm deep
     Static water:       50 cm in that cut only
-    Grass:              255 on the pool, falling to 0 at 5 m past the rim
+    Grass:              255 on the pool, falling to 0 at 5 m past the rim, CLK_0022
     Grass age:          empty, CLK_0026
     Humidity:           saturated on standing water, dry elsewhere
     Fertility:          empty
@@ -60,6 +60,7 @@ STORAGE_U16 = b"ST16"
 CLOCK_NOEV = b"CLK_NOEV"
 CLOCK_DIFFLIGHT = b"CLK_0018"
 CLOCK_U8 = b"CLK_0016"
+CLOCK_GRASS = b"CLK_0022"
 CLOCK_GRASS_AGE = b"CLK_0026"
 
 WATER_MIN_DEPTH_MM = 0
@@ -311,7 +312,7 @@ def create_world(output_path, offsets, water, grass, humidity):
             file,
             b"TYPE_GRASS",
             b"LYR_GRASS",
-            CLOCK_U8,
+            CLOCK_GRASS,
             STORAGE_U8,
             CELL_SIZE_MM,
             0,
@@ -384,7 +385,7 @@ def main():
     )
     print(
         f"  Grass:     {sum(height > 0 for height in grass)} cells, "
-        f"{min(grass)}..{max(grass)} mm"
+        f"{min(grass)}..{max(grass)} mm on CLK_0022"
     )
     print("  Grass age: 0 on CLK_0026")
     print(

@@ -16,6 +16,7 @@
 #include "configuration.h"
 #include "world.h"
 #include "simulation.h"
+#include "simulation_layer_grass.h"
 #include "debug.h"
 
 typedef enum {
@@ -29,6 +30,8 @@ typedef struct {
     const char *config_file;
     const char *name;
     const char *validate_world_file;
+    world_tick_t run_ms;
+    int run_ms_set;
 } options_t;
 
 static const char *layer_type_name(world_layer_type_t type)
@@ -453,6 +456,23 @@ static void print_selected_layer_stats(
         mean,
         max,
         stddev);
+
+    if (layer->type == WORLD_LAYER_GRASS) {
+        uint64_t births;
+        uint64_t deaths;
+        uint64_t births_total;
+        uint64_t deaths_total;
+
+        grass_cycle_stats(&births, &deaths);
+        grass_total_stats(&births_total, &deaths_total);
+        printf(
+            "  born=%" PRIu64 "  died=%" PRIu64
+            "  Σborn=%" PRIu64 "  Σdied=%" PRIu64,
+            births,
+            deaths,
+            births_total,
+            deaths_total);
+    }
 }
 
 /************************************
@@ -468,6 +488,7 @@ static void print_help(const char *program)
     printf("  -c, --config FILE       Configuration file\n");
     printf("  -n, --name NAME         Node/process name\n");
     printf("  -w, --validate-world FILE Validate world file\n");
+    printf("  -r, --run-ms MS         Simulate this many world ms, print grass births/deaths, exit\n");
 }
 
 /************************************
@@ -515,12 +536,13 @@ static int parse_arguments(int argc, char **argv, options_t *options)
         {"config",  required_argument, NULL, 'c'},
         {"name",    required_argument, NULL, 'n'},
         {"validate-world", required_argument, NULL, 'w'},
+        {"run-ms", required_argument, NULL, 'r'},
         {NULL,      0,                 NULL,  0}
     };
 
     int option;
 
-    while ((option = getopt_long(argc, argv, "hvdc:n:w:", long_options, NULL)) != -1) {
+    while ((option = getopt_long(argc, argv, "hvdc:n:w:r:", long_options, NULL)) != -1) {
         switch (option) {
         case 'h':
             print_help(argv[0]);
@@ -545,6 +567,27 @@ static int parse_arguments(int argc, char **argv, options_t *options)
         case 'w':
             options->validate_world_file = optarg;
             break;
+
+        case 'r': {
+            char *end = NULL;
+            unsigned long long value;
+
+            errno = 0;
+            value = strtoull(optarg, &end, 10);
+
+            if (errno != 0 ||
+                end == optarg ||
+                *end != '\0' ||
+                value == 0 ||
+                value > UINT64_MAX) {
+                fprintf(stderr, "Error: --run-ms needs a positive integer.\n");
+                return -1;
+            }
+
+            options->run_ms = (world_tick_t)value;
+            options->run_ms_set = 1;
+            break;
+        }
 
         default:
             return -1;
@@ -849,7 +892,9 @@ int main(int argc, char **argv)
         .debug = 0,
         .config_file = NULL,
         .name = NULL,
-        .validate_world_file = NULL
+        .validate_world_file = NULL,
+        .run_ms = 0,
+        .run_ms_set = 0
     };
 
     configuration_t configuration = {
@@ -1043,6 +1088,98 @@ int main(int argc, char **argv)
         simulation_destroy(simulation);
         world_destroy(&world);
         return EXIT_FAILURE;
+    }
+
+    if (options.run_ms_set) {
+        uint64_t births;
+        uint64_t deaths;
+        uint64_t births_total;
+        uint64_t deaths_total;
+        world_tick_t age;
+        const world_layer_t *grass_layer;
+        const char *name;
+        uint64_t nonzero;
+        double min;
+        double mean;
+        double max;
+        double stddev;
+
+        printf(
+            "Simulating %" PRIu64 " ms (%.2f days)...\n",
+            options.run_ms,
+            (double)options.run_ms / GRASS_MS_PER_DAY);
+
+        if (simulation_resume_for(simulation, options.run_ms) != 0) {
+            fprintf(stderr, "Error: --run-ms overflows the world age.\n");
+            simulation_destroy(simulation);
+            world_destroy(&world);
+            return EXIT_FAILURE;
+        }
+
+        while (simulation_get_world_tick(simulation) < options.run_ms) {
+            struct timespec wait = {
+                .tv_sec = 0,
+                .tv_nsec = 50000000L
+            };
+
+            nanosleep(&wait, NULL);
+        }
+
+        simulation_wait_until_paused(simulation);
+        age = simulation_get_world_tick(simulation);
+        grass_cycle_stats(&births, &deaths);
+        grass_total_stats(&births_total, &deaths_total);
+
+        printf(
+            "age %" PRIu64 " ms (%.2f days)\n",
+            age,
+            (double)age / GRASS_MS_PER_DAY);
+        printf(
+            "grass last cycle  born=%" PRIu64 "  died=%" PRIu64 "\n",
+            births,
+            deaths);
+        printf(
+            "grass total       born=%" PRIu64 "  died=%" PRIu64 "\n",
+            births_total,
+            deaths_total);
+
+        grass_layer = NULL;
+
+        if (world.layers != NULL) {
+            uint32_t i;
+
+            for (i = 0; i < world.layer_count; i++) {
+                if (world.layers[i] != NULL &&
+                    world.layers[i]->type == WORLD_LAYER_GRASS) {
+                    grass_layer = world.layers[i];
+                    break;
+                }
+            }
+        }
+
+        if (grass_layer != NULL &&
+            compute_layer_stats(
+                &world,
+                grass_layer,
+                &name,
+                &nonzero,
+                &min,
+                &mean,
+                &max,
+                &stddev)) {
+            printf(
+                "%s  nz=%" PRIu64 "  min=%.0f  mean=%.2f  max=%.0f  sd=%.2f\n",
+                name,
+                nonzero,
+                min,
+                mean,
+                max,
+                stddev);
+        }
+
+        simulation_destroy(simulation);
+        world_destroy(&world);
+        return EXIT_SUCCESS;
     }
 
     if (configuration.state_on_start == SIMULATE) {
