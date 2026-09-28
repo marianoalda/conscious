@@ -49,6 +49,32 @@ int64_t humidity_slope_cache_dz(
     world_direction_t direction);
 
 /*
+ * Published humidity and standing water when those grids share
+ * this cell size. by_index is true when every present layer can
+ * be read at the same cell index as the caller.
+ */
+typedef struct {
+    const uint16_t *humidity;
+    const uint32_t *water;
+    int32_t water_min_depth;
+    uint32_t cell_mm;
+    bool by_index;
+} humidity_field_cache_t;
+
+void humidity_field_cache_bind(
+    const world_state_t *world,
+    uint32_t cell_mm,
+    humidity_field_cache_t *cache);
+
+uint16_t humidity_field_cache_at(
+    const humidity_field_cache_t *cache,
+    uint32_t index);
+
+uint16_t humidity_field_cache_published(
+    const humidity_field_cache_t *cache,
+    uint32_t index);
+
+/*
  * One humidity wake. Reads standing water, published daylight,
  * published grass, and the slope of terrain and standing water.
  * Writes only this layer's pending grid.

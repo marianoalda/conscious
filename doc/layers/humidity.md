@@ -24,7 +24,7 @@ The function owns every change of humidity. Water, light, grass, and the heightm
 
 No other layer deposits into humidity, so the cycle does not fold a foreign delta. The step has already copied `published` into `pending`. The three operations below write `pending`. `published` stays as it was until every due layer has finished reading.
 
-**1. Standing water.** Every humidity cell whose centre lies on static water of depth greater than 0 is set to 65535. Depth 0 is dry. On the shipped world both grids are 100 mm, so this is the same index. Water is an absolute source: the assignment replaces the cell, and the water layer is not reduced. The same assignment runs again after evaporation, so a longer cycle cannot leave the pond below saturation.
+**1. Standing water.** Every humidity cell whose centre lies on static water of depth greater than 0 is set to 65535. Depth 0 is dry. On the shipped world both grids are 100 mm, so this is the same index and the water grid is read by that index. Water is an absolute source: the assignment replaces the cell, and the water layer is not reduced. The same assignment runs again after evaporation, so a longer cycle cannot leave the pond below saturation.
 
 **2. Diffusion.** Orthogonal neighbours only. The flow across one edge is proportional to the humidity difference plus a gravity term from the free-surface slope. Soil exchange sums to zero. Standing water is an absolute source: a wet neighbour counts as 65535, and the water cell does not lose the humidity it gives.
 
@@ -124,7 +124,7 @@ The shipped `world-po-mo-fer-hu-gr-v3.bin` starts the pool at saturation and the
 | Static water      | Absolute source. Wet cells are set to 65535. Water is unchanged. The depth gradient is added to the terrain slope for the free-surface head. |
 | Diffuse daylight  | Published irradiance. Sampled, not pushed by the light function. |
 | Grass             | Published height, as the evaporation divisor. Grass is unchanged. |
-| Fertility         | None. Fertility reads this layer; humidity does not read fertility. |
+| Fertility         | None. Fertility reads this layer and rebuilds the flux; humidity does not read fertility. Give both the same clock, see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). |
 | Heightmap         | Published slope buffer of the stored grid. Humidity does not change elevation. |
 
 Humidity writes no other layer.

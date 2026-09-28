@@ -40,7 +40,7 @@ flow    = humidity_edge_flow(H_here, H_neighbour, dz, coefficient)
 carried = 0.5 · fertility_source · min(1, |flow| / H_source)
 ```
 
-Soil exchange of that carried amount sums to zero. A source at humidity 0 carries nothing. A wake longer than one stable humidity step is split the same way humidity is. The slope is the same heightmap and water buffer humidity uses, at this fertility cell centre. On `MODULAR` the neighbour past an edge is the cell on the opposite edge. On `CLOSED` a missing side carries nothing.
+Soil exchange of that carried amount sums to zero. A source at humidity 0 carries nothing. A wake longer than one stable humidity step is split the same way humidity is. The slope is the same heightmap and water buffer humidity uses, at this fertility cell centre. When humidity, water, and fertility share a cell size, the published grids are indexed directly; otherwise the sample goes through millimetre coordinates. On `MODULAR` the neighbour past an edge is the cell on the opposite edge. On `CLOSED` a missing side carries nothing.
 
 The net is rounded to the nearest integer and clamped to 0..255. The unused fraction stays in the remainder until the next wake.
 
@@ -50,7 +50,7 @@ A generic cell cannot raise N and kill the biome as two numbers. Dryness therefo
 
 ### Why this rate
 
-The drag uses humidity's explicit step, so it stays stable on the same clock. On the shipped world, both layers use `CLK_0016`. The 8-bit cell cannot hold a slow leak: leftovers below half a unit wait in the remainder.
+The drag uses humidity's explicit step, so it stays stable on the same clock. On the shipped world, both layers use `CLK_0016`. A different divisor on either layer repeats that full-grid flux, or splits a longer wake into several substeps; see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). The 8-bit cell cannot hold a slow leak: leftovers below half a unit wait in the remainder.
 
 ## Viewer
 
@@ -60,7 +60,7 @@ The heightmap viewer does not paint this layer.
 
 | Other layer       | Role in this function                                      |
 | ----------------- | ---------------------------------------------------------- |
-| Humidity          | Published field. The flux across each edge is the carrier. |
+| Humidity          | Published field. The flux across each edge is the carrier. Same clock as this layer; a different divisor repeats the flux walk, see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). |
 | Static water      | Wet cells count as humidity 65535 when computing that flux. Water is unchanged. |
 | Heightmap         | Published slope, through humidity's free-surface head.     |
 | Grass             | Signed inbox, folded here. Empty while grass is a placeholder. Grass is not read as a height. |

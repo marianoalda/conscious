@@ -340,6 +340,7 @@ static void fertility_moisture_loss(
     const world_state_t *world,
     const world_u8_payload_t *fertility,
     const world_layer_t *humidity_layer,
+    const humidity_field_cache_t *field,
     double *work,
     uint32_t columns,
     uint32_t rows,
@@ -348,36 +349,46 @@ static void fertility_moisture_loss(
     uint32_t row;
     uint32_t column;
     double days;
+    bool by_index;
 
     if (hours <= 0.0) {
         return;
     }
 
     days = hours / 24.0;
+    by_index = field != NULL && field->humidity != NULL;
 
     for (row = 0; row < rows; row++) {
         for (column = 0; column < columns; column++) {
-            uint32_t east_mm;
-            uint32_t north_mm;
             uint32_t index;
+            uint16_t humidity;
             double humidity_fraction;
             double flood;
             double loss;
 
             index = row * columns + column;
-            east_mm =
-                column * fertility->cell_size +
-                fertility->cell_size / 2;
-            north_mm =
-                row * fertility->cell_size +
-                fertility->cell_size / 2;
-            humidity_fraction =
-                (double)fertility_humidity_published(
+
+            if (by_index) {
+                humidity = humidity_field_cache_published(field, index);
+            } else {
+                uint32_t east_mm;
+                uint32_t north_mm;
+
+                east_mm =
+                    column * fertility->cell_size +
+                    fertility->cell_size / 2;
+                north_mm =
+                    row * fertility->cell_size +
+                    fertility->cell_size / 2;
+                humidity = fertility_humidity_published(
                     world,
                     humidity_layer,
                     east_mm,
-                    north_mm) /
-                (double)HUMIDITY_SATURATED;
+                    north_mm);
+            }
+
+            humidity_fraction =
+                (double)humidity / (double)HUMIDITY_SATURATED;
 
             if (humidity_fraction <= FERTILITY_FLOOD_START) {
                 continue;
@@ -415,33 +426,51 @@ static void fertility_advect_step(
     uint32_t columns,
     uint32_t rows,
     double coefficient,
-    const humidity_slope_cache_t *slopes)
+    const humidity_slope_cache_t *slopes,
+    const humidity_field_cache_t *field)
 {
     uint32_t row;
     uint32_t column;
+    bool field_by_index;
+    bool slope_by_index;
+
+    field_by_index = field != NULL && field->by_index;
+    slope_by_index = slopes != NULL && slopes->by_index;
 
     for (row = 0; row < rows; row++) {
         for (column = 0; column < columns; column++) {
             uint32_t index;
             uint32_t east_mm;
             uint32_t north_mm;
+            uint16_t humidity_here;
             int neighbor;
 
             index = row * columns + column;
-            east_mm =
-                column * fertility->cell_size +
-                fertility->cell_size / 2;
-            north_mm =
-                row * fertility->cell_size +
-                fertility->cell_size / 2;
+            east_mm = 0;
+            north_mm = 0;
+
+            if (!field_by_index || !slope_by_index) {
+                east_mm =
+                    column * fertility->cell_size +
+                    fertility->cell_size / 2;
+                north_mm =
+                    row * fertility->cell_size +
+                    fertility->cell_size / 2;
+            }
+
+            if (field_by_index) {
+                humidity_here = humidity_field_cache_at(field, index);
+            } else {
+                humidity_here = fertility_humidity_at(
+                    world,
+                    humidity_layer,
+                    water_layer,
+                    east_mm,
+                    north_mm);
+            }
 
             for (neighbor = 0; neighbor < 4; neighbor++) {
                 uint32_t neighbor_index;
-                uint32_t neighbor_column;
-                uint32_t neighbor_row;
-                uint32_t neighbor_east_mm;
-                uint32_t neighbor_north_mm;
-                uint16_t humidity_here;
                 uint16_t humidity_neighbor;
                 int64_t dz;
                 double flow;
@@ -468,28 +497,32 @@ static void fertility_advect_step(
                     continue;
                 }
 
-                neighbor_column = neighbor_index % columns;
-                neighbor_row = neighbor_index / columns;
-                neighbor_east_mm =
-                    neighbor_column * fertility->cell_size +
-                    fertility->cell_size / 2;
-                neighbor_north_mm =
-                    neighbor_row * fertility->cell_size +
-                    fertility->cell_size / 2;
-                humidity_here = fertility_humidity_at(
-                    world,
-                    humidity_layer,
-                    water_layer,
-                    east_mm,
-                    north_mm);
-                humidity_neighbor = fertility_humidity_at(
-                    world,
-                    humidity_layer,
-                    water_layer,
-                    neighbor_east_mm,
-                    neighbor_north_mm);
+                if (field_by_index) {
+                    humidity_neighbor =
+                        humidity_field_cache_at(field, neighbor_index);
+                } else {
+                    uint32_t neighbor_column;
+                    uint32_t neighbor_row;
+                    uint32_t neighbor_east_mm;
+                    uint32_t neighbor_north_mm;
 
-                if (slopes != NULL && slopes->by_index) {
+                    neighbor_column = neighbor_index % columns;
+                    neighbor_row = neighbor_index / columns;
+                    neighbor_east_mm =
+                        neighbor_column * fertility->cell_size +
+                        fertility->cell_size / 2;
+                    neighbor_north_mm =
+                        neighbor_row * fertility->cell_size +
+                        fertility->cell_size / 2;
+                    humidity_neighbor = fertility_humidity_at(
+                        world,
+                        humidity_layer,
+                        water_layer,
+                        neighbor_east_mm,
+                        neighbor_north_mm);
+                }
+
+                if (slope_by_index) {
                     dz = humidity_slope_cache_dz(
                         slopes,
                         index,
@@ -596,6 +629,7 @@ void simulate_fertility(
     const world_layer_t *humidity_layer;
     const world_layer_t *water_layer;
     humidity_slope_cache_t slopes;
+    humidity_field_cache_t field;
     double *work;
     uint32_t columns;
     uint32_t rows;
@@ -661,6 +695,7 @@ void simulate_fertility(
     humidity_layer = world_find_layer(world, WORLD_LAYER_HUMIDITY);
     water_layer = world_find_layer(world, WORLD_LAYER_STATICWATER);
     humidity_slope_cache_bind(world, fertility->cell_size, &slopes);
+    humidity_field_cache_bind(world, fertility->cell_size, &field);
     moisture_ms = 0.0;
     advect_ms = 0.0;
     substeps = 0;
@@ -670,6 +705,7 @@ void simulate_fertility(
         world,
         fertility,
         humidity_layer,
+        &field,
         work,
         columns,
         rows,
@@ -703,7 +739,8 @@ void simulate_fertility(
                 columns,
                 rows,
                 coefficient,
-                &slopes);
+                &slopes,
+                &field);
             debug_clock(&t1);
             advect_ms += debug_ms(&t0, &t1);
             substeps++;
