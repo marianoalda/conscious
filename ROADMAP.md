@@ -26,7 +26,6 @@ docs.
 
 Beings as a layer of their own, each on its thread, with behaviour,
 inhabiting the world that 0.1 already simulates.
-Parent issue: [#1](https://github.com/marianoalda/conscious/issues/1).
 
 ## Later
 
