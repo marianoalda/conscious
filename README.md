@@ -4,7 +4,7 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 
 The original statement of that aim is kept in [README.original.md](README.original.md). What follows is the implementation as it stands.
 
-There are no beings yet. The present code is the time engine and the world those beings would inhabit: a quantized terrain, a clock, and a way to suspend the clock and keep the world.
+There are no beings yet. The present code is the time engine and the world those beings would inhabit: a quantized terrain, a clock, and a way to suspend the clock and keep the world. Which slice of the aim belongs to which tag is in [ROADMAP.md](ROADMAP.md).
 
 ## Modules
 
@@ -157,7 +157,7 @@ The program draws terrain, grass, static water, and humidity from a world file. 
 
 ## Ideas futuras
 
-These are still the aim. They are not in the program.
+These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) names which of them is expected in which version; 0.2 is a multithreaded layer of living beings with behaviour. The rest stay here until they are named for a release.
 
 - An open, modular and distributed architecture: the world as a shared memory segment, and beings written in another language (the original example was Smalltalk) so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Beings as a repository and an engine: object oriented, with their own rules, able to evolve so that different specimens with different features (DNA) and feature expressions can exist simultaneously. Able to emit messages. Basic circuits (thirst, hunger, reproduction, cold) in the reality and in the model. A lifecycle. An integrated model of the world and of the being itself, not necessarily synchronized. Surviving instinct as the spark that keeps them alive. Behaviours that trigger anomalies, such as curiosity.
