@@ -81,7 +81,7 @@ World files for trying this:
 | ---- | -------- |
 | `../data/world.bin` | Hard link to the shipped grass world. Pool cells start saturated; soil starts dry |
 | `../data/world-po-mo-fer-hu-gr-v3.bin` | Same file as `world.bin` |
-| `../data/world-po-mo-fer-hu-gr-v3-day.bin` | Same world after 86400000 ms (one day) of simulation, with moisture in the soil |
+| `../data/world-po-mo-fer-hu-gr-v3-day.bin` | Older one-day humidity snapshot of a previous grass ring (moisture in the soil; no grass-age layer). Not a run of the current shipped world |
 
 Further detail on the humidity layer is in [doc/layers/humidity.md](../../doc/layers/humidity.md).
 

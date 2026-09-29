@@ -10,7 +10,7 @@ There are no beings yet. The present code is the time engine and the world those
 
 - [conscious](modules/conscious/) — the main module. It owns the process, the operator interface, the world, and the time engine.
 
-`modules/conscious/README.md` describes an earlier stage of that module. This document is the one that matches the code.
+`modules/conscious/README.md` is the module build note. This document is the one that matches the code.
 
 ## Architecture
 
@@ -49,7 +49,7 @@ The heightmap shipped with the current worlds is `CLK_NOEV`. The step walks the 
 
 The world also stores whether it is `CLOSED` or `MODULAR`. That property is saved and loaded. Joining opposite edges is not a rule of one layer. `world_neighbor` answers any layer that asks for an orthogonal neighbour: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. `world_cell_at` finds the cell that contains a point. A point outside the map has no cell, on either kind of world.
 
-The step itself stays in `modules/conscious/src/simulation.c`: which layer is due, the copy from `published` to `pending`, the publish, and the thread. A layer that changes cells has its own file. Diffuse daylight is `simulation_layer_difflight.c`. Humidity is `simulation_layer_humidity.c`. Fertility is `simulation_layer_fertility.c`. The heightmap and grass do not change a cell yet, so their functions remain in `simulation.c`.
+The step itself stays in `modules/conscious/src/simulation.c`: which layer is due, the copy from `published` to `pending`, the publish, and the thread. A layer that changes cells has its own file. Diffuse daylight is `simulation_layer_difflight.c`. Humidity is `simulation_layer_humidity.c`. Fertility is `simulation_layer_fertility.c`. Grass is `simulation_layer_grass.c`. Grass age is `simulation_layer_grassage.c`. The heightmap has no evolution rule yet. Static water never runs.
 
 ### File format
 
@@ -68,7 +68,7 @@ The specification is in [doc/world-format](doc/world-format/README.md). What eac
 
 `modules/conscious/config/conscious-dev.cfg` always names `world.bin`. That name stays fixed. The file is a hard link to the world under test.
 
-Today `modules/data/world.bin` is a hard link to `modules/data/world-po-mo-fer-hu-gr-v3.bin`: a 20 m × 20 m modular world with a mountain, a pool of static water, one diffuse-daylight cell on `CLK_0018` (262144 ms, about 4.4 minutes), humidity, fertility, grass, and grass age. Humidity is `ST16`: the pool starts saturated and the soil starts dry. Fertility is 128 under living grass and 0 elsewhere. Grass occupies the pool and a 5 m ring; living cells have a seeded random height from 1 to 255 mm and a seeded random age from 0 to 254. Humidity and fertility use `CLK_0016` (65536 ms). Grass uses `CLK_0022` (4194304 ms). Grass age uses `CLK_0026`. `modules/data/world-pool-mountain-v3.bin` is the same terrain, pool, and daylight without those four layers. `modules/data/world-po-mo-fer-hu-gr-v3-day.bin` is the grass world after one day of simulation, with humidity spread into the soil. `modules/data/world-v3-ramp.bin` remains the 10 m × 10 m ramp. `modules/data/world-v3-mound.bin` is another version 3 world, a mound 2 m above a flat border. `modules/data/world-stone-hills-v3.bin` is a 100 m × 100 m world with stone hills and the same biological layers.
+Today `modules/data/world.bin` is a hard link to `modules/data/world-po-mo-fer-hu-gr-v3.bin`: a 20 m × 20 m modular world with a mountain, a pool of static water, one diffuse-daylight cell on `CLK_0018` (262144 ms, about 4.4 minutes), humidity, fertility, grass, and grass age. Humidity is `ST16`: the pool starts saturated and the soil starts dry. Fertility is 128 under living grass and 0 elsewhere. Grass occupies the pool and a 5 m ring; living cells have a seeded random height from 1 to 255 mm and a seeded random age from 0 to 254. Humidity and fertility use `CLK_0016` (65536 ms). Grass uses `CLK_0022` (4194304 ms). Grass age uses `CLK_0026`. `modules/data/world-pool-mountain-v3.bin` is the same terrain, pool, and daylight without those four layers. `modules/data/world-po-mo-fer-hu-gr-v3-day.bin` is an older one-day humidity snapshot of a previous grass ring: age 86400000 ms, soil moisture past the shore, no grass-age layer, fertility still 0, and grass heights from that earlier generator. It is useful to show humidity in the viewer; it is not a run of the current shipped grass world. `modules/data/world-v3-ramp.bin` remains the 10 m × 10 m ramp. `modules/data/world-v3-mound.bin` is another version 3 world, a mound 2 m above a flat border. `modules/data/world-stone-hills-v3.bin` is a 100 m × 100 m world with stone hills and the same biological layers; regenerate it with `create_world_v3_stone_hills.py` if the script and the bin diverge.
 
 ### Generating the shipped world
 
@@ -161,13 +161,12 @@ These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) 
 
 - An open, modular and distributed architecture: the world as a shared memory segment, and beings written in another language (the original example was Smalltalk) so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Beings as a repository and an engine: object oriented, with their own rules, able to evolve so that different specimens with different features (DNA) and feature expressions can exist simultaneously. Able to emit messages. Basic circuits (thirst, hunger, reproduction, cold) in the reality and in the model. A lifecycle. An integrated model of the world and of the being itself, not necessarily synchronized. Surviving instinct as the spark that keeps them alive. Behaviours that trigger anomalies, such as curiosity.
-- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is that place. Static water, diffuse daylight, humidity, fertility, and grass are there today. Humidity and fertility change. Grass does not yet.
+- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is that place. Static water, diffuse daylight, humidity, fertility, grass, and grass age are there today and change on their clocks. Beings are not.
 - The time engine able to be accelerated or slowed down, not only suspended.
 - Snapshots of beings as well as of the world, and external tools that translate to human language what happens in the world and inside the beings: evolution, thoughts, analysis of protolanguage.
 - A world console or control panel: suspend, explain, explain changes between snapshots, translate the world and the beings. A real-time representation, graphical or textual, that can feed other agents. Orders from a remote control panel.
 - Debugging across a heterogeneous set of languages.
-- Compatibility among engines beyond the world file: versions, tags, releases, and a written account of which features each engine requires.
-- Setup and understanding of the Github issues subsystem.
+- Compatibility among engines beyond the world file: a written account of which features each engine requires, beyond tags and releases.
 - Automation of build and execution beyond `make` in `modules/conscious`.
 
 ## Obsoleto
@@ -178,4 +177,4 @@ These phrases from the original statement no longer match the code. They are kep
 - The runtime world is not one embedded heightmap. It is an array of layer pointers. A version 3 file is the same sequence of layer blocks, read until the file ends.
 - New worlds are not written as version 0 or version 1. Those formats, and version 2, are read. Saving writes version 3.
 - "How to automate the build" is no longer an open question for this module. The build is `make` in `modules/conscious`.
-- `modules/conscious/README.md` still says the world implementation is a placeholder that only checks whether the file opens, and that version 1 is what gets written. That description is obsolete.
+- Tags, releases, and GitHub issues are in use; the open point is documenting engine feature requirements across versions.
