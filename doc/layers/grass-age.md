@@ -33,4 +33,6 @@ Tick 0 does not add a day: `last_simulation_tick` starts at 0.
 | Heightmap         | None.                                                      |
 | Static water      | None.                                                      |
 
-The viewer does not paint this layer.
+## Viewer
+
+The [world viewer](../../modules/utils/world-view/README.md) paints grass age as a magenta underside sheet (Tab cycle with humidity and fertility), hung from the heightmap zero like humidity. Depth is `(value / 255) × greatest elevation`.

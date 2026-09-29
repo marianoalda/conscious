@@ -54,7 +54,7 @@ The drag uses humidity's explicit step, so it stays stable on the same clock. On
 
 ## Viewer
 
-The heightmap viewer does not paint this layer.
+The [world viewer](../../modules/utils/world-view/README.md) paints fertility as an amber underside sheet (Tab cycle with humidity and grass age), hung from the heightmap zero like humidity. Depth is `(value / 255) × greatest elevation`.
 
 ## Dependencies
 

@@ -71,7 +71,7 @@ flowchart LR
 
 The heightmap does not feed the water grid. The viewer, and the meaning of the water surface, add the two elevations. Water cells are not derived from the heightmap by the simulation.
 
-The [heightmap viewer](../../modules/heightmap-view/README.md) reads published grids from a world file. It draws terrain, grass, static water, and humidity. Humidity is shown as a blue sheet from the heightmap zero downward; see [humidity](humidity.md#viewer).
+The [world viewer](../../modules/utils/world-view/README.md) reads published grids from a world file. It draws terrain, grass, static water, and a Tab-cycled underside sheet (humidity, fertility, or grass age) hung from the heightmap zero. See [humidity](humidity.md#viewer).
 
 | Layer            | Reads while it runs                                      | Changes other layers                                      |
 | ---------------- | -------------------------------------------------------- | --------------------------------------------------------- |

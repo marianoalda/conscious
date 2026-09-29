@@ -137,16 +137,20 @@ Useful options:
 
 Startup is `SIMULATE` or `HOLD`.
 
-## Heightmap viewer
+## World viewer
 
-From `modules/heightmap-view`:
+From `modules/utils/world-view`:
 
 ```bash
 make
-./build/heightmap-view ../data/world-po-mo-fer-hu-gr-v3-day.bin 0.25 0.85
+./build/world-view ../../data/world-po-mo-fer-hu-gr-v3-day.bin
 ```
 
-The program draws terrain, grass, static water, and humidity from a world file. Humidity is a blue sheet hung from the heightmap's stored zero and growing downward; it is visible only from below the terrain. Full usage, controls, and layer colours are in [modules/heightmap-view/README.md](modules/heightmap-view/README.md).
+The program draws terrain, grass, static water, and a Tab-cycled underside
+sheet (humidity, fertility, or grass age) from a world file. Underside
+sheets hang from the heightmap's stored zero and grow downward; they are
+visible only from below the terrain. Full usage, controls, and layer
+colours are in [modules/utils/world-view/README.md](modules/utils/world-view/README.md).
 
 ## References
 

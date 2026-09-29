@@ -1,30 +1,23 @@
 /*
- * Perspective view of a Conscious heightmap.
+ * Perspective view of a Conscious world file.
  *
  * Coordinates follow UTM: X grows east, Y grows north, Z is elevation.
  * The southwest corner of the world is the origin.
  *
- * Each stored cell is one sample. The drawn vertex at a grid corner is
- * the average of the cells that meet there, so a cell becomes a quad
- * that covers its own footprint and can tilt. The quad is split by the
- * diagonal from its southwest corner to its northeast corner.
+ * Each stored heightmap cell is one sample. The drawn vertex at a grid
+ * corner is the average of the cells that meet there, so a cell becomes
+ * a quad that covers its own footprint and can tilt. The quad is split
+ * by the diagonal from its southwest corner to its northeast corner.
  *
  * Daylight is the world's diffuse-light cell divided by its maximum.
- * It brightens the scene a little. Directional shade uses the command-line
- * DIRECT weight on every face, including at night, so hills keep contrast
- * when the file is midnight. DIFFUSE is the unlit floor. L points toward
- * the northeast, above the horizon.
+ * It brightens the scene a little. Directional shade uses the DIRECT
+ * weight on every face, including at night. DIFFUSE is the unlit floor.
+ * L points toward the northeast, above the horizon.
  *
- * Terrain is brown. Grass is green on that same face: its opacity is its
- * height divided by 255, so bare ground stays brown and full height covers it.
- * Static water is cyan at the same luminance, shaded as the terrain face
- * underneath, and drawn at terrain plus depth.
- *
- * Humidity is a second sheet, blue, hung from the heightmap's stored
- * zero (min_height), not from the terrain surface. It grows downward.
- * A saturated cell (65535) reaches down by the world's greatest
- * elevation. The sheet stays at or below that zero, so the terrain
- * hides it from above. The orbit continues below the horizon.
+ * Terrain is brown. Grass is green on that same face. Static water is
+ * cyan raised on the terrain. Tab cycles the underside sheet among
+ * humidity (blue), fertility (amber), and grass age (magenta): each is
+ * hung from the heightmap zero and grows downward, visible from below.
  */
 
 #include "world.h"
@@ -42,6 +35,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define DEFAULT_DIFFUSE 0.25f
+#define DEFAULT_DIRECT 0.85f
+#define LIGHT_STEP 0.05f
+#define LIGHT_MIN 0.0f
+#define LIGHT_MAX 2.0f
+
+typedef enum {
+    UNDERSHEET_HUMIDITY = 0,
+    UNDERSHEET_FERTILITY,
+    UNDERSHEET_GRASSAGE,
+    UNDERSHEET_COUNT
+} undersheet_mode_t;
+
 typedef struct {
     float x;
     float y;
@@ -54,12 +60,14 @@ typedef struct {
     uint32_t corners_x;
     uint32_t corners_y;
     vec3 *corners;
-    float *corner_water_m;
     float *cell_water_m;
+    float *corner_water_m;
+    float *corner_fertility_m;
+    float *corner_grassage_m;
     float *cell_grass_alpha;
-    float *corner_humidity_m; /* metres below the heightmap zero */
-    float datum_m;            /* elevation of stored height 0 */
-    float humidity_reach_m;   /* greatest elevation, the saturated depth */
+    float *corner_humidity_m;
+    float datum_m;
+    float sheet_reach_m; /* greatest elevation; saturated underside depth */
     float span_m;
 } mesh_t;
 
@@ -85,6 +93,8 @@ static int window_height = 720;
 static bool dragging = false;
 static int last_x;
 static int last_y;
+static bool dirty = true;
+static undersheet_mode_t undersheet_mode = UNDERSHEET_HUMIDITY;
 
 static const float light_x = 0.45f;
 static const float light_y = 0.25f;
@@ -92,13 +102,15 @@ static const float light_z = 0.86f;
 static const float ground_red = 0.50f;
 static const float ground_green = 0.31f;
 static const float ground_blue = 0.16f;
-/*
- * Cyan scaled to the ground luminance (0.2126 R + 0.7152 G + 0.0722 B),
- * so a water face is as bright as that face would be in brown.
- */
 static const float water_red = 0.106f;
 static const float water_green = 0.399f;
 static const float water_blue = 0.436f;
+static const float fertility_red = 0.55f;
+static const float fertility_green = 0.32f;
+static const float fertility_blue = 0.08f;
+static const float grassage_red = 0.52f;
+static const float grassage_green = 0.18f;
+static const float grassage_blue = 0.48f;
 static const float grass_red = 0.18f;
 static const float grass_green = 0.48f;
 static const float grass_blue = 0.12f;
@@ -108,7 +120,7 @@ static const float humidity_blue = 0.72f;
 
 static void die(const char *message)
 {
-    fprintf(stderr, "heightmap-view: %s\n", message);
+    fprintf(stderr, "world-view: %s\n", message);
     exit(EXIT_FAILURE);
 }
 
@@ -116,15 +128,21 @@ static void usage(void)
 {
     fprintf(
         stderr,
-        "Usage: heightmap-view WORLD DIFFUSE DIRECT\n"
+        "Usage: world-view WORLD [--diffuse VALUE] [--direct VALUE]\n"
         "\n"
-        "WORLD     Conscious world file\n"
-        "DIFFUSE   light that remains at night, from 0 to 1\n"
-        "DIRECT    weight of slope lighting; not gated on daylight\n"
+        "WORLD       Conscious world file (required)\n"
+        "--diffuse   unlit floor light, default %.2f (0..2)\n"
+        "--direct    slope lighting weight, default %.2f (0..2)\n"
         "\n"
         "Mouse wheel zooms. Drag with the left button to orbit,\n"
         "above or below the world.\n"
-        "Arrow keys move across the world. Esc quits.\n");
+        "Arrow keys pan. Tab cycles humidity / fertility / grass age\n"
+        "undersheets (view from below the world). , . adjust diffuse.\n"
+        "[ ] adjust direct. Esc or q quits.\n"
+        "While a frame is drawn, queued input is drained so the\n"
+        "view stays fluid instead of replaying a backlog of redraws.\n",
+        DEFAULT_DIFFUSE,
+        DEFAULT_DIRECT);
 }
 
 static float clampf(float value, float low, float high)
@@ -145,98 +163,97 @@ static float parse_light(const char *text, const char *name)
 
     value = strtof(text, &end);
     if (end == text || *end != '\0' || !isfinite(value) || value < 0.0f) {
-        fprintf(stderr, "heightmap-view: %s must be a number >= 0\n", name);
+        fprintf(stderr, "world-view: %s must be a number >= 0\n", name);
         usage();
         exit(EXIT_FAILURE);
     }
     return value;
 }
 
-static const world_heightmap_payload_t *find_heightmap(const world_state_t *world)
+static void print_lights(void)
+{
+    fprintf(
+        stderr,
+        "world-view: diffuse=%.2f direct=%.2f\n",
+        view.diffuse,
+        view.direct);
+}
+
+static const char *undersheet_name(undersheet_mode_t mode)
+{
+    switch (mode) {
+    case UNDERSHEET_HUMIDITY:
+        return "humidity";
+    case UNDERSHEET_FERTILITY:
+        return "fertility";
+    case UNDERSHEET_GRASSAGE:
+        return "grass age";
+    default:
+        return "unknown";
+    }
+}
+
+static const world_layer_t *find_layer(
+    const world_state_t *world,
+    world_layer_type_t type)
 {
     uint32_t i;
 
     for (i = 0; i < world->layer_count; i++) {
         const world_layer_t *layer = world->layers[i];
 
-        if (layer != NULL &&
-            layer->type == WORLD_LAYER_HEIGHTMAP &&
-            layer->payload != NULL) {
-            return layer->payload;
+        if (layer != NULL && layer->type == type && layer->payload != NULL) {
+            return layer;
         }
     }
     return NULL;
+}
+
+static const world_heightmap_payload_t *find_heightmap(
+    const world_state_t *world)
+{
+    const world_layer_t *layer = find_layer(world, WORLD_LAYER_HEIGHTMAP);
+
+    return layer != NULL ? layer->payload : NULL;
 }
 
 static const world_u16_payload_t *find_humidity(const world_state_t *world)
 {
-    uint32_t i;
+    const world_layer_t *layer = find_layer(world, WORLD_LAYER_HUMIDITY);
 
-    for (i = 0; i < world->layer_count; i++) {
-        const world_layer_t *layer = world->layers[i];
-
-        if (layer != NULL &&
-            layer->type == WORLD_LAYER_HUMIDITY &&
-            layer->payload != NULL) {
-            return layer->payload;
-        }
-    }
-    return NULL;
+    return layer != NULL ? layer->payload : NULL;
 }
 
-static const world_u8_payload_t *find_grass(const world_state_t *world)
+static const world_u8_payload_t *find_u8(
+    const world_state_t *world,
+    world_layer_type_t type)
 {
-    uint32_t i;
+    const world_layer_t *layer = find_layer(world, type);
 
-    for (i = 0; i < world->layer_count; i++) {
-        const world_layer_t *layer = world->layers[i];
-
-        if (layer != NULL &&
-            layer->type == WORLD_LAYER_GRASS &&
-            layer->payload != NULL) {
-            return layer->payload;
-        }
-    }
-    return NULL;
+    return layer != NULL ? layer->payload : NULL;
 }
 
 static const world_staticwater_payload_t *find_staticwater(
     const world_state_t *world)
 {
-    uint32_t i;
+    const world_layer_t *layer = find_layer(world, WORLD_LAYER_STATICWATER);
 
-    for (i = 0; i < world->layer_count; i++) {
-        const world_layer_t *layer = world->layers[i];
-
-        if (layer != NULL &&
-            layer->type == WORLD_LAYER_STATICWATER &&
-            layer->payload != NULL) {
-            return layer->payload;
-        }
-    }
-    return NULL;
+    return layer != NULL ? layer->payload : NULL;
 }
 
 /* Daylight fraction from the published irradiance. A missing layer is night. */
 static float file_daylight(const world_state_t *world)
 {
-    const world_difflight_payload_t *light = NULL;
-    uint32_t i;
+    const world_layer_t *layer = find_layer(world, WORLD_LAYER_DIFFLIGHT);
+    const world_difflight_payload_t *light;
     uint64_t cell_count;
     uint64_t cell;
     double sum;
 
-    for (i = 0; i < world->layer_count; i++) {
-        const world_layer_t *layer = world->layers[i];
-
-        if (layer != NULL &&
-            layer->type == WORLD_LAYER_DIFFLIGHT &&
-            layer->payload != NULL) {
-            light = layer->payload;
-            break;
-        }
+    if (layer == NULL) {
+        return 0.0f;
     }
-
+    light = layer->payload;
     if (light == NULL ||
         light->published == NULL ||
         light->max_irradiance == 0 ||
@@ -272,12 +289,121 @@ static double cell_elevation_m(
     return ((double)heightmap->min_height + (double)offset) / 1000.0;
 }
 
+static void free_mesh(void)
+{
+    free(mesh.cell_water_m);
+    free(mesh.corner_water_m);
+    free(mesh.corner_fertility_m);
+    free(mesh.corner_grassage_m);
+    free(mesh.cell_grass_alpha);
+    free(mesh.corner_humidity_m);
+    free(mesh.corners);
+    memset(&mesh, 0, sizeof(mesh));
+}
+
+static void average_corners_from_cells(
+    const float *cell_values,
+    float *corner_values)
+{
+    uint32_t column;
+    uint32_t row;
+
+    for (row = 0; row < mesh.corners_y; row++) {
+        for (column = 0; column < mesh.corners_x; column++) {
+            double sum = 0.0;
+            int count = 0;
+            int d_row;
+            int d_column;
+
+            for (d_row = -1; d_row <= 0; d_row++) {
+                for (d_column = -1; d_column <= 0; d_column++) {
+                    int cell_column = (int)column + d_column;
+                    int cell_row = (int)row + d_row;
+
+                    if (cell_column < 0 || cell_row < 0 ||
+                        cell_column >= (int)mesh.cell_width ||
+                        cell_row >= (int)mesh.cell_depth) {
+                        continue;
+                    }
+                    sum += cell_values[
+                        (uint32_t)cell_row * mesh.cell_width +
+                        (uint32_t)cell_column];
+                    count++;
+                }
+            }
+            if (count > 0) {
+                corner_values[row * mesh.corners_x + column] =
+                    (float)(sum / count);
+            }
+        }
+    }
+}
+
+/* Depth below heightmap zero: (value / 255) × sheet_reach_m. */
+static void fill_u8_undersheet(
+    const world_state_t *world,
+    const world_heightmap_payload_t *heightmap,
+    const world_u8_payload_t *layer,
+    float *corner_out)
+{
+    uint32_t column;
+    uint32_t row;
+    uint32_t layer_columns;
+    uint32_t layer_rows;
+    float *cell_depth;
+
+    if (layer == NULL ||
+        layer->published == NULL ||
+        layer->cell_size == 0 ||
+        mesh.sheet_reach_m <= 0.0f ||
+        world->width % layer->cell_size != 0 ||
+        world->depth % layer->cell_size != 0) {
+        return;
+    }
+
+    cell_depth = calloc(
+        (size_t)mesh.cell_width * mesh.cell_depth,
+        sizeof(*cell_depth));
+    if (cell_depth == NULL) {
+        return;
+    }
+
+    layer_columns = world->width / layer->cell_size;
+    layer_rows = world->depth / layer->cell_size;
+
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            uint32_t east_mm =
+                column * heightmap->cell_size + heightmap->cell_size / 2;
+            uint32_t north_mm =
+                row * heightmap->cell_size + heightmap->cell_size / 2;
+            uint32_t layer_column = east_mm / layer->cell_size;
+            uint32_t layer_row = north_mm / layer->cell_size;
+            uint8_t value;
+
+            if (layer_column >= layer_columns) {
+                layer_column = layer_columns - 1;
+            }
+            if (layer_row >= layer_rows) {
+                layer_row = layer_rows - 1;
+            }
+            value = layer->published[layer_row * layer_columns + layer_column];
+            cell_depth[row * mesh.cell_width + column] =
+                ((float)value / 255.0f) * mesh.sheet_reach_m;
+        }
+    }
+    average_corners_from_cells(cell_depth, corner_out);
+    free(cell_depth);
+}
+
 static int build_mesh(const world_state_t *world)
 {
     const world_heightmap_payload_t *heightmap;
     uint32_t column;
     uint32_t row;
     double cell_m;
+    size_t cell_count;
+    size_t corner_count;
 
     heightmap = find_heightmap(world);
     if (heightmap == NULL || heightmap->published == NULL ||
@@ -297,10 +423,27 @@ static int build_mesh(const world_state_t *world)
 
     mesh.corners_x = mesh.cell_width + 1;
     mesh.corners_y = mesh.cell_depth + 1;
-    mesh.corners = calloc(
-        (size_t)mesh.corners_x * mesh.corners_y,
-        sizeof(*mesh.corners));
-    if (mesh.corners == NULL) {
+    cell_count = (size_t)mesh.cell_width * mesh.cell_depth;
+    corner_count = (size_t)mesh.corners_x * mesh.corners_y;
+
+    mesh.corners = calloc(corner_count, sizeof(*mesh.corners));
+    mesh.cell_water_m = calloc(cell_count, sizeof(*mesh.cell_water_m));
+    mesh.corner_water_m = calloc(corner_count, sizeof(*mesh.corner_water_m));
+    mesh.corner_fertility_m =
+        calloc(corner_count, sizeof(*mesh.corner_fertility_m));
+    mesh.corner_grassage_m =
+        calloc(corner_count, sizeof(*mesh.corner_grassage_m));
+    mesh.cell_grass_alpha = calloc(cell_count, sizeof(*mesh.cell_grass_alpha));
+    mesh.corner_humidity_m =
+        calloc(corner_count, sizeof(*mesh.corner_humidity_m));
+    if (mesh.corners == NULL ||
+        mesh.cell_water_m == NULL ||
+        mesh.corner_water_m == NULL ||
+        mesh.corner_fertility_m == NULL ||
+        mesh.corner_grassage_m == NULL ||
+        mesh.cell_grass_alpha == NULL ||
+        mesh.corner_humidity_m == NULL) {
+        free_mesh();
         return -1;
     }
 
@@ -309,7 +452,7 @@ static int build_mesh(const world_state_t *world)
         (double)world->width / 1000.0,
         (double)world->depth / 1000.0);
     mesh.datum_m = (float)((double)heightmap->min_height / 1000.0);
-    mesh.humidity_reach_m = mesh.datum_m;
+    mesh.sheet_reach_m = mesh.datum_m;
 
     for (row = 0; row < mesh.corners_y; row++) {
         for (column = 0; column < mesh.corners_x; column++) {
@@ -339,8 +482,8 @@ static int build_mesh(const world_state_t *world)
                         (uint32_t)cell_row);
 
                     sum += elevation;
-                    if ((float)elevation > mesh.humidity_reach_m) {
-                        mesh.humidity_reach_m = (float)elevation;
+                    if ((float)elevation > mesh.sheet_reach_m) {
+                        mesh.sheet_reach_m = (float)elevation;
                     }
                     count++;
                 }
@@ -349,36 +492,8 @@ static int build_mesh(const world_state_t *world)
         }
     }
 
-    mesh.cell_water_m = calloc(
-        (size_t)mesh.cell_width * mesh.cell_depth,
-        sizeof(*mesh.cell_water_m));
-    mesh.corner_water_m = calloc(
-        (size_t)mesh.corners_x * mesh.corners_y,
-        sizeof(*mesh.corner_water_m));
-    mesh.cell_grass_alpha = calloc(
-        (size_t)mesh.cell_width * mesh.cell_depth,
-        sizeof(*mesh.cell_grass_alpha));
-    mesh.corner_humidity_m = calloc(
-        (size_t)mesh.corners_x * mesh.corners_y,
-        sizeof(*mesh.corner_humidity_m));
-    if (mesh.cell_water_m == NULL ||
-        mesh.corner_water_m == NULL ||
-        mesh.cell_grass_alpha == NULL ||
-        mesh.corner_humidity_m == NULL) {
-        free(mesh.cell_water_m);
-        free(mesh.corner_water_m);
-        free(mesh.cell_grass_alpha);
-        free(mesh.corner_humidity_m);
-        free(mesh.corners);
-        mesh.cell_water_m = NULL;
-        mesh.corner_water_m = NULL;
-        mesh.cell_grass_alpha = NULL;
-        mesh.corner_humidity_m = NULL;
-        mesh.corners = NULL;
-        return -1;
-    }
-    if (mesh.humidity_reach_m < 0.0f) {
-        mesh.humidity_reach_m = 0.0f;
+    if (mesh.sheet_reach_m < 0.0f) {
+        mesh.sheet_reach_m = 0.0f;
     }
 
     {
@@ -400,41 +515,23 @@ static int build_mesh(const world_state_t *world)
                     mesh.cell_water_m[index] = (float)(depth_mm / 1000.0);
                 }
             }
-
-            for (row = 0; row < mesh.corners_y; row++) {
-                for (column = 0; column < mesh.corners_x; column++) {
-                    double sum = 0.0;
-                    int count = 0;
-                    int d_row;
-                    int d_column;
-
-                    for (d_row = -1; d_row <= 0; d_row++) {
-                        for (d_column = -1; d_column <= 0; d_column++) {
-                            int cell_column = (int)column + d_column;
-                            int cell_row = (int)row + d_row;
-
-                            if (cell_column < 0 || cell_row < 0 ||
-                                cell_column >= (int)mesh.cell_width ||
-                                cell_row >= (int)mesh.cell_depth) {
-                                continue;
-                            }
-                            sum += mesh.cell_water_m[
-                                (uint32_t)cell_row * mesh.cell_width +
-                                (uint32_t)cell_column];
-                            count++;
-                        }
-                    }
-                    if (count > 0) {
-                        mesh.corner_water_m[row * mesh.corners_x + column] =
-                            (float)(sum / count);
-                    }
-                }
-            }
+            average_corners_from_cells(mesh.cell_water_m, mesh.corner_water_m);
         }
     }
 
+    fill_u8_undersheet(
+        world,
+        heightmap,
+        find_u8(world, WORLD_LAYER_FERTILITY),
+        mesh.corner_fertility_m);
+    fill_u8_undersheet(
+        world,
+        heightmap,
+        find_u8(world, WORLD_LAYER_GRASSAGE),
+        mesh.corner_grassage_m);
+
     {
-        const world_u8_payload_t *grass = find_grass(world);
+        const world_u8_payload_t *grass = find_u8(world, WORLD_LAYER_GRASS);
 
         if (grass != NULL &&
             grass->published != NULL &&
@@ -477,26 +574,15 @@ static int build_mesh(const world_state_t *world)
         if (humidity != NULL &&
             humidity->published != NULL &&
             humidity->cell_size != 0 &&
-            mesh.humidity_reach_m > 0.0f &&
+            mesh.sheet_reach_m > 0.0f &&
             world->width % humidity->cell_size == 0 &&
             world->depth % humidity->cell_size == 0) {
             uint32_t humidity_columns = world->width / humidity->cell_size;
             uint32_t humidity_rows = world->depth / humidity->cell_size;
-            float *cell_depth = calloc(
-                (size_t)mesh.cell_width * mesh.cell_depth,
-                sizeof(*cell_depth));
+            float *cell_depth = calloc(cell_count, sizeof(*cell_depth));
 
             if (cell_depth == NULL) {
-                free(mesh.cell_water_m);
-                free(mesh.corner_water_m);
-                free(mesh.cell_grass_alpha);
-                free(mesh.corner_humidity_m);
-                free(mesh.corners);
-                mesh.cell_water_m = NULL;
-                mesh.corner_water_m = NULL;
-                mesh.cell_grass_alpha = NULL;
-                mesh.corner_humidity_m = NULL;
-                mesh.corners = NULL;
+                free_mesh();
                 return -1;
             }
 
@@ -522,39 +608,10 @@ static int build_mesh(const world_state_t *world)
                         humidity_row * humidity_columns + humidity_column];
                     cell_depth[row * mesh.cell_width + column] = (float)(
                         ((double)value / 65535.0) *
-                        (double)mesh.humidity_reach_m);
+                        (double)mesh.sheet_reach_m);
                 }
             }
-
-            for (row = 0; row < mesh.corners_y; row++) {
-                for (column = 0; column < mesh.corners_x; column++) {
-                    double sum = 0.0;
-                    int count = 0;
-                    int d_row;
-                    int d_column;
-
-                    for (d_row = -1; d_row <= 0; d_row++) {
-                        for (d_column = -1; d_column <= 0; d_column++) {
-                            int cell_column = (int)column + d_column;
-                            int cell_row = (int)row + d_row;
-
-                            if (cell_column < 0 || cell_row < 0 ||
-                                cell_column >= (int)mesh.cell_width ||
-                                cell_row >= (int)mesh.cell_depth) {
-                                continue;
-                            }
-                            sum += cell_depth[
-                                (uint32_t)cell_row * mesh.cell_width +
-                                (uint32_t)cell_column];
-                            count++;
-                        }
-                    }
-                    if (count > 0) {
-                        mesh.corner_humidity_m[row * mesh.corners_x + column] =
-                            (float)(sum / count);
-                    }
-                }
-            }
+            average_corners_from_cells(cell_depth, mesh.corner_humidity_m);
             free(cell_depth);
         }
     }
@@ -595,12 +652,6 @@ static float face_shade(const vec3 *a, const vec3 *b, const vec3 *c)
         }
     }
 
-    /*
-     * DIFFUSE is the unlit floor. DIRECT shades the slope on every
-     * face, including night: scaling it by daylight flattened midnight
-     * worlds and mesa tops. Daylight only lifts the scene a little,
-     * so noon does not clamp every face to 1.
-     */
     shade = view.diffuse + view.direct * incidence;
     shade += 0.2f * view.daylight;
     return clampf(shade, 0.0f, 1.0f);
@@ -644,7 +695,10 @@ static vec3 water_corner(uint32_t column, uint32_t row)
 }
 
 /* Same footprint as the terrain corner, hung from the heightmap zero. */
-static vec3 humidity_corner(uint32_t column, uint32_t row)
+static vec3 undersheet_corner(
+    uint32_t column,
+    uint32_t row,
+    const float *corner_depth_m)
 {
     const vec3 *corner = corner_at(column, row);
     vec3 lowered;
@@ -652,8 +706,120 @@ static vec3 humidity_corner(uint32_t column, uint32_t row)
     lowered.x = corner->x;
     lowered.y = corner->y;
     lowered.z = mesh.datum_m -
-        mesh.corner_humidity_m[row * mesh.corners_x + column];
+        corner_depth_m[row * mesh.corners_x + column];
     return lowered;
+}
+
+static void draw_water(void)
+{
+    uint32_t column;
+    uint32_t row;
+
+    glBegin(GL_TRIANGLES);
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            vec3 southwest;
+            vec3 southeast;
+            vec3 northeast;
+            vec3 northwest;
+
+            if (mesh.cell_water_m[row * mesh.cell_width + column] <= 0.0f) {
+                continue;
+            }
+
+            southwest = water_corner(column, row);
+            southeast = water_corner(column + 1, row);
+            northeast = water_corner(column + 1, row + 1);
+            northwest = water_corner(column, row + 1);
+            emit_triangle(
+                &southwest, &southeast, &northeast,
+                face_shade(
+                    corner_at(column, row),
+                    corner_at(column + 1, row),
+                    corner_at(column + 1, row + 1)),
+                water_red, water_green, water_blue,
+                1.0f);
+            emit_triangle(
+                &southwest, &northeast, &northwest,
+                face_shade(
+                    corner_at(column, row),
+                    corner_at(column + 1, row + 1),
+                    corner_at(column, row + 1)),
+                water_red, water_green, water_blue,
+                1.0f);
+        }
+    }
+    glEnd();
+}
+
+static void draw_undersheet(
+    const float *corner_depth_m,
+    float red,
+    float green,
+    float blue)
+{
+    uint32_t column;
+    uint32_t row;
+
+    glBegin(GL_TRIANGLES);
+    for (row = 0; row < mesh.cell_depth; row++) {
+        for (column = 0; column < mesh.cell_width; column++) {
+            float southwest_depth =
+                corner_depth_m[row * mesh.corners_x + column];
+            float southeast_depth =
+                corner_depth_m[row * mesh.corners_x + column + 1];
+            float northeast_depth =
+                corner_depth_m[(row + 1) * mesh.corners_x + column + 1];
+            float northwest_depth =
+                corner_depth_m[(row + 1) * mesh.corners_x + column];
+            vec3 southwest;
+            vec3 southeast;
+            vec3 northeast;
+            vec3 northwest;
+
+            if (southwest_depth <= 0.0f &&
+                southeast_depth <= 0.0f &&
+                northeast_depth <= 0.0f &&
+                northwest_depth <= 0.0f) {
+                continue;
+            }
+
+            southwest = undersheet_corner(column, row, corner_depth_m);
+            southeast = undersheet_corner(column + 1, row, corner_depth_m);
+            northeast = undersheet_corner(column + 1, row + 1, corner_depth_m);
+            northwest = undersheet_corner(column, row + 1, corner_depth_m);
+            draw_triangle(
+                &southwest, &southeast, &northeast,
+                red, green, blue);
+            draw_triangle(
+                &southwest, &northeast, &northwest,
+                red, green, blue);
+        }
+    }
+    glEnd();
+}
+
+static void draw_active_undersheet(void)
+{
+    if (undersheet_mode == UNDERSHEET_HUMIDITY) {
+        draw_undersheet(
+            mesh.corner_humidity_m,
+            humidity_red,
+            humidity_green,
+            humidity_blue);
+    } else if (undersheet_mode == UNDERSHEET_FERTILITY) {
+        draw_undersheet(
+            mesh.corner_fertility_m,
+            fertility_red,
+            fertility_green,
+            fertility_blue);
+    } else {
+        draw_undersheet(
+            mesh.corner_grassage_m,
+            grassage_red,
+            grassage_green,
+            grassage_blue);
+    }
 }
 
 static void draw_mesh(void)
@@ -669,7 +835,6 @@ static void draw_mesh(void)
             const vec3 *northeast = corner_at(column + 1, row + 1);
             const vec3 *northwest = corner_at(column, row + 1);
 
-            /* Diagonal from southwest to northeast. */
             draw_triangle(
                 southwest, southeast, northeast,
                 ground_red, ground_green, ground_blue);
@@ -719,79 +884,10 @@ static void draw_mesh(void)
     glDisable(GL_BLEND);
 
     glPolygonOffset(-2.0f, -2.0f);
-    glBegin(GL_TRIANGLES);
-    for (row = 0; row < mesh.cell_depth; row++) {
-        for (column = 0; column < mesh.cell_width; column++) {
-            vec3 southwest;
-            vec3 southeast;
-            vec3 northeast;
-            vec3 northwest;
-
-            if (mesh.cell_water_m[row * mesh.cell_width + column] <= 0.0f) {
-                continue;
-            }
-
-            southwest = water_corner(column, row);
-            southeast = water_corner(column + 1, row);
-            northeast = water_corner(column + 1, row + 1);
-            northwest = water_corner(column, row + 1);
-            emit_triangle(
-                &southwest, &southeast, &northeast,
-                face_shade(
-                    corner_at(column, row),
-                    corner_at(column + 1, row),
-                    corner_at(column + 1, row + 1)),
-                water_red, water_green, water_blue,
-                1.0f);
-            emit_triangle(
-                &southwest, &northeast, &northwest,
-                face_shade(
-                    corner_at(column, row),
-                    corner_at(column + 1, row + 1),
-                    corner_at(column, row + 1)),
-                water_red, water_green, water_blue,
-                1.0f);
-        }
-    }
-    glEnd();
+    draw_water();
     glDisable(GL_POLYGON_OFFSET_FILL);
 
-    glBegin(GL_TRIANGLES);
-    for (row = 0; row < mesh.cell_depth; row++) {
-        for (column = 0; column < mesh.cell_width; column++) {
-            float southwest_depth =
-                mesh.corner_humidity_m[row * mesh.corners_x + column];
-            float southeast_depth =
-                mesh.corner_humidity_m[row * mesh.corners_x + column + 1];
-            float northeast_depth =
-                mesh.corner_humidity_m[(row + 1) * mesh.corners_x + column + 1];
-            float northwest_depth =
-                mesh.corner_humidity_m[(row + 1) * mesh.corners_x + column];
-            vec3 southwest;
-            vec3 southeast;
-            vec3 northeast;
-            vec3 northwest;
-
-            if (southwest_depth <= 0.0f &&
-                southeast_depth <= 0.0f &&
-                northeast_depth <= 0.0f &&
-                northwest_depth <= 0.0f) {
-                continue;
-            }
-
-            southwest = humidity_corner(column, row);
-            southeast = humidity_corner(column + 1, row);
-            northeast = humidity_corner(column + 1, row + 1);
-            northwest = humidity_corner(column, row + 1);
-            draw_triangle(
-                &southwest, &southeast, &northeast,
-                humidity_red, humidity_green, humidity_blue);
-            draw_triangle(
-                &southwest, &northeast, &northwest,
-                humidity_red, humidity_green, humidity_blue);
-        }
-    }
-    glEnd();
+    draw_active_undersheet();
 }
 
 static void camera_eye(float *x, float *y, float *z)
@@ -874,6 +970,23 @@ static void move_view(KeySym key)
     }
 }
 
+static void adjust_light(KeySym key)
+{
+    if (key == XK_comma) {
+        view.diffuse = clampf(view.diffuse - LIGHT_STEP, LIGHT_MIN, LIGHT_MAX);
+        print_lights();
+    } else if (key == XK_period) {
+        view.diffuse = clampf(view.diffuse + LIGHT_STEP, LIGHT_MIN, LIGHT_MAX);
+        print_lights();
+    } else if (key == XK_bracketleft) {
+        view.direct = clampf(view.direct - LIGHT_STEP, LIGHT_MIN, LIGHT_MAX);
+        print_lights();
+    } else if (key == XK_bracketright) {
+        view.direct = clampf(view.direct + LIGHT_STEP, LIGHT_MIN, LIGHT_MAX);
+        print_lights();
+    }
+}
+
 static int open_window(void)
 {
     int attributes[] = {
@@ -927,7 +1040,7 @@ static int open_window(void)
         CWColormap | CWEventMask,
         &window_attributes);
 
-    XStoreName(display, window, "Conscious heightmap");
+    XStoreName(display, window, "Conscious world-view");
     delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &delete_window, 1);
     XMapWindow(display, window);
@@ -946,14 +1059,14 @@ static int open_window(void)
 static void handle_event(XEvent *event, Atom delete_window, bool *running)
 {
     if (event->type == Expose && event->xexpose.count == 0) {
-        redraw();
+        dirty = true;
         return;
     }
 
     if (event->type == ConfigureNotify) {
         window_width = event->xconfigure.width;
         window_height = event->xconfigure.height;
-        redraw();
+        dirty = true;
         return;
     }
 
@@ -965,11 +1078,11 @@ static void handle_event(XEvent *event, Atom delete_window, bool *running)
         } else if (event->xbutton.button == Button4) {
             view.distance *= 0.9f;
             clamp_view();
-            redraw();
+            dirty = true;
         } else if (event->xbutton.button == Button5) {
             view.distance *= 1.1f;
             clamp_view();
-            redraw();
+            dirty = true;
         }
         return;
     }
@@ -988,7 +1101,7 @@ static void handle_event(XEvent *event, Atom delete_window, bool *running)
         view.azimuth += (float)dx * 0.007f;
         view.elevation -= (float)dy * 0.007f;
         clamp_view();
-        redraw();
+        dirty = true;
         return;
     }
 
@@ -999,8 +1112,23 @@ static void handle_event(XEvent *event, Atom delete_window, bool *running)
             *running = false;
             return;
         }
+        if (key == XK_Tab) {
+            undersheet_mode = (undersheet_mode + 1) % UNDERSHEET_COUNT;
+            fprintf(
+                stderr,
+                "world-view: undersheet=%s\n",
+                undersheet_name(undersheet_mode));
+            dirty = true;
+            return;
+        }
+        if (key == XK_comma || key == XK_period ||
+            key == XK_bracketleft || key == XK_bracketright) {
+            adjust_light(key);
+            dirty = true;
+            return;
+        }
         move_view(key);
-        redraw();
+        dirty = true;
         return;
     }
 
@@ -1010,6 +1138,11 @@ static void handle_event(XEvent *event, Atom delete_window, bool *running)
     }
 }
 
+/*
+ * Drain the whole pending queue into view state, then draw at most once.
+ * Events that arrive during redraw are drained afterward without stacking
+ * one frame per mouse sample.
+ */
 static void event_loop(void)
 {
     Atom delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
@@ -1018,43 +1151,105 @@ static void event_loop(void)
     while (running) {
         XEvent event;
 
-        XNextEvent(display, &event);
-        handle_event(&event, delete_window, &running);
+        if (XPending(display) == 0) {
+            if (dirty) {
+                dirty = false;
+                redraw();
+                continue;
+            }
+            XNextEvent(display, &event);
+            handle_event(&event, delete_window, &running);
+        }
+
+        while (XPending(display) > 0) {
+            XNextEvent(display, &event);
+            handle_event(&event, delete_window, &running);
+        }
+
+        if (dirty) {
+            dirty = false;
+            redraw();
+        }
     }
+}
+
+static void parse_args(int argc, char **argv, const char **world_path)
+{
+    int i;
+
+    *world_path = NULL;
+    view.diffuse = DEFAULT_DIFFUSE;
+    view.direct = DEFAULT_DIRECT;
+
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            usage();
+            exit(EXIT_SUCCESS);
+        }
+        if (strcmp(argv[i], "--diffuse") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "world-view: --diffuse needs a value\n");
+                usage();
+                exit(EXIT_FAILURE);
+            }
+            view.diffuse = parse_light(argv[++i], "--diffuse");
+            continue;
+        }
+        if (strcmp(argv[i], "--direct") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "world-view: --direct needs a value\n");
+                usage();
+                exit(EXIT_FAILURE);
+            }
+            view.direct = parse_light(argv[++i], "--direct");
+            continue;
+        }
+        if (argv[i][0] == '-') {
+            fprintf(stderr, "world-view: unknown option %s\n", argv[i]);
+            usage();
+            exit(EXIT_FAILURE);
+        }
+        if (*world_path != NULL) {
+            fprintf(stderr, "world-view: only one WORLD path is allowed\n");
+            usage();
+            exit(EXIT_FAILURE);
+        }
+        *world_path = argv[i];
+    }
+
+    if (*world_path == NULL) {
+        usage();
+        exit(EXIT_FAILURE);
+    }
+
+    view.diffuse = clampf(view.diffuse, LIGHT_MIN, LIGHT_MAX);
+    view.direct = clampf(view.direct, LIGHT_MIN, LIGHT_MAX);
 }
 
 int main(int argc, char **argv)
 {
+    const char *world_path;
     world_state_t world;
     world_error_t error;
     uint32_t mid_column;
     uint32_t mid_row;
     const vec3 *middle;
 
-    if (argc == 2 && strcmp(argv[1], "-h") == 0) {
-        usage();
-        return EXIT_SUCCESS;
-    }
-    if (argc != 4) {
-        usage();
-        return EXIT_FAILURE;
-    }
-
-    view.diffuse = parse_light(argv[2], "DIFFUSE");
-    view.direct = parse_light(argv[3], "DIRECT");
+    parse_args(argc, argv, &world_path);
     view.daylight = 0.0f;
 
-    error = world_load(argv[1], &world);
+    error = world_load(world_path, &world);
     if (error != WORLD_OK) {
         fprintf(
             stderr,
-            "heightmap-view: %s\n",
+            "world-view: %s\n",
             world_error_string(error));
         world_destroy(&world);
         return EXIT_FAILURE;
     }
     view.daylight = clampf(file_daylight(&world), 0.0f, 1.0f);
     printf("Daylight: %.3f\n", view.daylight);
+    print_lights();
     if (build_mesh(&world) != 0) {
         world_destroy(&world);
         die("world has no heightmap");
@@ -1079,10 +1274,6 @@ int main(int argc, char **argv)
     open_window();
     event_loop();
 
-    free(mesh.cell_water_m);
-    free(mesh.corner_water_m);
-    free(mesh.cell_grass_alpha);
-    free(mesh.corner_humidity_m);
-    free(mesh.corners);
+    free_mesh();
     return EXIT_SUCCESS;
 }

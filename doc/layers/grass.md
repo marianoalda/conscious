@@ -8,7 +8,7 @@ The shipped grass world fills the pool and a 5 m ring past its edge. Living cell
 
 ## Evolution
 
-The layer was added empty, then filled with that ring so the viewer could show it. The [heightmap viewer](../../modules/heightmap-view/README.md) paints the cell green with opacity `height / 255` over the brown terrain. Water is drawn afterwards, so grass under the pool is hidden. Humidity is drawn last, as a blue sheet below the heightmap zero.
+The layer was added empty, then filled with that ring so the viewer could show it. The [world viewer](../../modules/utils/world-view/README.md) paints the cell green with opacity `height / 255` over the brown terrain. Water is drawn afterwards, so grass under the pool is hidden. Humidity, fertility, and grass age share a Tab-cycled underside sheet below the heightmap zero.
 
 The height is both the stored state and the stand-in for biomass. Birth, growth, and death of old age now run. A later herbivore would lower the height without triggering the death return. The shipped fertility under the ring is 128, half of 255, so growth is not limited by fertility at the start. Mixed ages keep a living parent when the oldest plants die.
 

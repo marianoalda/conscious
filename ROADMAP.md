@@ -23,12 +23,14 @@ docs.
 ## 0.2 — next
 
 - Capa multihilo de seres vivientes con comportamiento.
-- Rebuild of heightmap-view as world-view (load all simulatable layers,
-  overlay cycling, fluid redraw, optional light CLI/keys).
+- Rebuild of heightmap-view as [`world-view`](modules/utils/world-view/)
+  ([#2](https://github.com/marianoalda/conscious/issues/2)): load all
+  simulatable layers, underside-sheet cycling, fluid redraw, optional
+  light CLI/keys — done.
 
 Beings as a layer of their own, each on their thread, with behaviour,
-inhabiting the world that 0.1 already simulates. The viewer is renamed
-and kept able to open the worlds that version produces.
+inhabiting the world that 0.1 already simulates. The viewer utility lives
+under `modules/utils/world-view` and opens the worlds that version produces.
 
 ## Later
 
