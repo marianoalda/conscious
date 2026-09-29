@@ -13,15 +13,13 @@
 /*
  * Soil fertility spent to grow from height 0 to GRASS_HEIGHT_MAX.
  * Birth and growth subtract this budget in proportion to millimetres
- * gained. Death of old age returns twice the theoretical spend of
- * the height that dies, not of the millimetres ever grown.
+ * gained. Death of old age returns twice the fertility that would
+ * grow the height that dies: half on that cell, half among its
+ * eight neighbours. Not the millimetres ever grown.
  */
 #define GRASS_SOIL_FERTILITY_TO_MAX \
     ((int32_t)FERTILITY_UPTAKE_PER_MM * (int32_t)GRASS_HEIGHT_MAX)
 #define GRASS_DEATH_FERTILITY_RETURN (2 * GRASS_SOIL_FERTILITY_TO_MAX)
-
-#define grass_death_fertility_return(height) \
-    ((int32_t)FERTILITY_RETURN_PER_MM * (int32_t)(height))
 
 /*
  * One grass-age wake. Living cells (published grass height > 0)

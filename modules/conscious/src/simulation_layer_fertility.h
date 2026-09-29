@@ -39,8 +39,8 @@ void simulate_fertility(
  * uptake. Positive is death. The value sits until the next
  * fertility wake folds it. A missing fertility layer is a no-op.
  * Birth and growth subtract FERTILITY_UPTAKE_PER_MM per millimetre.
- * Old-age death adds FERTILITY_RETURN_PER_MM times the height
- * that dies.
+ * Old-age death adds twice the fertility that would grow the height
+ * that dies: half on that cell, half split among eight neighbours.
  */
 void fertility_add_grass_delta(
     const world_state_t *world,

@@ -7,21 +7,30 @@ Reads data/world-pool-mountain-v3.bin and writes
 data/world-po-mo-fer-hu-gr-v3.bin. The source file is not modified.
 
 Humidity is a 10 cm grid of uint16 (storage ST16). Cells on standing
-water start saturated (65535); the rest start at 0. Fertility
-is a 10 cm grid of uint8 zeros. Grass is the same uint8 grid: 255 at
-the pool edge and inside it, falling linearly to 0 at 5 m outside
-that edge. Humidity and fertility use clock CLK_0016.
-Grass uses CLK_0022. Grass age is an empty uint8 grid on CLK_0026.
+water start saturated (65535); the rest start at 0. Grass occupies
+the pool and a 5 m ring outside it. Living cells get a seeded random
+height from 1 to 255 mm and a seeded random age from 0 to 254.
+Fertility is 128 on cells that have grass and 0 elsewhere. Humidity
+and fertility use clock CLK_0016. Grass uses CLK_0022. Grass age
+uses CLK_0026.
 
 The pool matches create_world_v3_pool_mountain.py: centre 13.6 m east
 and 10.0 m north, radius 1 m.
 
 Usage, from the modules directory:
 
+    ./utils/create_world_v3_pool_mountain.py
     ./utils/create_world_v3_po_mo_fer_hu_gr.py
+    rm -f data/world.bin
+    ln data/world-po-mo-fer-hu-gr-v3.bin data/world.bin
+
+The first command is needed only when the pool world is missing or
+has changed. The last two make world.bin a hard link to this file
+so conscious-dev.cfg does not need editing.
 """
 
 import math
+import random
 import struct
 from pathlib import Path
 
@@ -46,7 +55,11 @@ POOL_NORTH_MM = 10_000
 POOL_RADIUS_MM = 1_000
 GRASS_REACH_MM = 5_000
 GRASS_MAX = 255
+GRASS_AGE_MAX = 255
+FERTILITY_MAX = 255
+FERTILITY_INITIAL = int(round(FERTILITY_MAX * 0.5))
 HUMIDITY_SATURATED = 65535
+GRASS_RNG_SEED = 1
 
 
 def padded(text, width):
@@ -55,17 +68,29 @@ def padded(text, width):
     return text + bytes(width - len(text))
 
 
-def grass_height(column, row):
+def grass_in_stand(column, row):
     east = column * CELL_SIZE_MM + CELL_SIZE_MM / 2
     north = row * CELL_SIZE_MM + CELL_SIZE_MM / 2
     distance = math.hypot(east - POOL_EAST_MM, north - POOL_NORTH_MM)
     beyond = distance - POOL_RADIUS_MM
+    return beyond < GRASS_REACH_MM
 
-    if beyond <= 0:
-        return GRASS_MAX
-    if beyond >= GRASS_REACH_MM:
-        return 0
-    return int(round(GRASS_MAX * (1.0 - beyond / GRASS_REACH_MM)))
+
+def fill_grass_and_age(columns, rows):
+    rng = random.Random(GRASS_RNG_SEED)
+    grass = bytearray(columns * rows)
+    age = bytearray(columns * rows)
+
+    for row in range(rows):
+        for column in range(columns):
+            if not grass_in_stand(column, row):
+                continue
+
+            index = row * columns + column
+            grass[index] = rng.randint(1, GRASS_MAX)
+            age[index] = rng.randint(0, GRASS_AGE_MAX - 1)
+
+    return grass, age
 
 
 def read_layers(data, width, depth):
@@ -109,7 +134,16 @@ def humidity_initial(water_depths):
     return values
 
 
-def layer_block(type_name, layer_name, clock, columns, rows, water_depths=None):
+def layer_block(
+    type_name,
+    layer_name,
+    clock,
+    columns,
+    rows,
+    grass,
+    age,
+    water_depths=None,
+):
     block = bytearray()
     block += LAYER_MAGIC
     block += padded(type_name, 16)
@@ -124,10 +158,14 @@ def layer_block(type_name, layer_name, clock, columns, rows, water_depths=None):
     block += struct.pack(">i", 0)
 
     if type_name == b"TYPE_GRASS":
+        block += grass
+    elif type_name == b"TYPE_GRASSAGE":
+        block += age
+    elif type_name == b"TYPE_FERTILITY":
         values = bytearray(columns * rows)
-        for row in range(rows):
-            for column in range(columns):
-                values[row * columns + column] = grass_height(column, row)
+        for index, height in enumerate(grass):
+            if height > 0:
+                values[index] = FERTILITY_INITIAL
         block += values
     elif type_name == b"TYPE_HUMIDITY":
         if water_depths is None:
@@ -155,6 +193,7 @@ def main():
     if water_depths is None:
         raise SystemExit("source world has no static water")
 
+    grass, age = fill_grass_and_age(columns, rows)
     output = bytearray(data)
 
     for type_name, layer_name, clock in LAYERS:
@@ -164,18 +203,20 @@ def main():
             clock,
             columns,
             rows,
+            grass,
+            age,
             water_depths=water_depths,
         )
 
     target.write_bytes(output)
-    grass = bytes(
-        grass_height(column, row)
-        for row in range(rows)
-        for column in range(columns)
-    )
     humidity_values = struct.unpack(
         ">" + "H" * (columns * rows),
         humidity_initial(water_depths),
+    )
+    living = [height for height in grass if height > 0]
+    living_age = [value for height, value in zip(grass, age) if height > 0]
+    fertility = bytes(
+        FERTILITY_INITIAL if height > 0 else 0 for height in grass
     )
     print(f"wrote {target}")
     print(
@@ -183,8 +224,14 @@ def main():
         f"{sum(value == HUMIDITY_SATURATED for value in humidity_values)} "
         f"of {columns * rows}"
     )
-    print(f"grass cells {sum(value > 0 for value in grass)} of {columns * rows}")
-    print(f"grass height {min(grass)}..{max(grass)}")
+    print(f"grass cells {len(living)} of {columns * rows}")
+    print(f"grass height {min(living)}..{max(living)}")
+    print(f"grass age {min(living_age)}..{max(living_age)}")
+    print(
+        "fertility under grass "
+        f"{sum(value == FERTILITY_INITIAL for value in fertility)} "
+        f"at {FERTILITY_INITIAL}"
+    )
     print("grass clock CLK_0022")
     print(f"size {len(output)} bytes")
 

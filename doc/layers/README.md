@@ -25,6 +25,8 @@ The simulation status of a function is one of:
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
 
+The development `world.bin` is a hard link to `modules/data/world-po-mo-fer-hu-gr-v3.bin`. Rebuild that file, and the link, from `modules` as in the [root README](../../README.md#generating-the-shipped-world).
+
 ## What the engine does today
 
 On a tick the engine visits each layer whose clock is due. Static water is never due. For every other due layer it copies `published` into `pending`, calls the layer function, clamps that layer's published and pending cells to the stored range, and, after every due layer has been called, swaps the two buffers. Other layers read `published` only. The file stores `published` only. The same clamp runs when a grid is appended from a file: daylight is 0..`max_irradiance`, humidity is 0..65535, fertility, grass, and grass age are 0..255. Heightmap and static water are already unsigned 32-bit.
@@ -78,7 +80,7 @@ The [heightmap viewer](../../modules/heightmap-view/README.md) reads published g
 | Diffuse daylight | The world age                                            | Nothing. It does not evaporate humidity.                  |
 | Humidity         | Its own grid, static water, published light, published grass, published terrain and water slopes | Nothing. Evaporation and capillary head are its own rules. |
 | Fertility        | Published humidity flux, standing water as a wet source, terrain slope, grass deltas | Nothing. It folds the grass inbox into its own grid. |
-| Grass            | Published humidity, fertility, daylight, grass age, orthogonal neighbours | Spends fertility on birth and growth. Returns `2 · height` on old-age death. Zeros height and age in both buffers. |
+| Grass            | Published humidity, fertility, daylight, grass age, orthogonal neighbours | Spends fertility on birth and growth. On old-age death returns twice the fertility of that height: half here, half among eight neighbours. Zeros height and age in both buffers. |
 | Grass age        | Published grass height                                   | Nothing. Caps a living cell at 255. |
 
 Two kinds of coupling are distinct:

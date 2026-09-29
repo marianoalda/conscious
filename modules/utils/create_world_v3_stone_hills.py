@@ -11,10 +11,10 @@ Create a 100 m × 100 m modular world with stone hills, a pool, and grass.
     Hills:              several steep-sided stone mesas in the centre
     Pool:               1 m radius on the eastern inner plain, 50 cm deep
     Static water:       50 cm in that cut only
-    Grass:              255 on the pool, falling to 0 at 5 m past the rim, CLK_0022
-    Grass age:          empty, CLK_0026
+    Grass:              random 1-255 mm on the pool and 5 m past the rim, CLK_0022
+    Grass age:          random 0-254 on living cells, CLK_0026
     Humidity:           saturated on standing water, dry elsewhere
-    Fertility:          empty
+    Fertility:          128 under living grass, 0 elsewhere
     Diffuse light:      one cell covering the world, CLK_0018
 
 Elevation:
@@ -26,10 +26,14 @@ min_height is the pool floor, 0.5 m. The plain is stored as +500 mm.
 Usage, from the modules directory:
 
     ./utils/create_world_v3_stone_hills.py
+
+That write does not retarget data/world.bin. The shipped development
+world is world-po-mo-fer-hu-gr-v3.bin; see the root README.
 """
 
 import argparse
 import math
+import random
 import struct
 from pathlib import Path
 
@@ -72,6 +76,10 @@ WORLD_AGE = 0
 LAST_SIMULATION_TICK = 0
 HUMIDITY_SATURATED = 65535
 GRASS_MAX = 255
+GRASS_AGE_MAX = 255
+FERTILITY_MAX = 255
+FERTILITY_INITIAL = int(round(FERTILITY_MAX * 0.5))
+GRASS_RNG_SEED = 1
 
 # Centre east, north, half-width, half-depth (m), rotation (deg),
 # corner radius (m), rise above the plain (mm), cliff width (m).
@@ -174,13 +182,9 @@ def hill_rise_mm(x_m, y_m):
     return rise
 
 
-def grass_height_mm(x_m, y_m):
+def grass_in_stand(x_m, y_m):
     beyond = math.hypot(x_m - POOL_EAST_M, y_m - POOL_NORTH_M) - POOL_RADIUS_M
-    if beyond <= 0.0:
-        return GRASS_MAX
-    if beyond >= GRASS_REACH_M:
-        return 0
-    return int(round(GRASS_MAX * (1.0 - beyond / GRASS_REACH_M)))
+    return beyond < GRASS_REACH_M
 
 
 def in_flat_margin(x_m, y_m):
@@ -189,11 +193,13 @@ def in_flat_margin(x_m, y_m):
 
 
 def grids(cell_width, cell_depth):
-    """Height offsets, water depths, grass, and humidity, row-major south to north."""
+    """Height offsets, water depths, grass, age, and humidity, row-major south to north."""
     offsets = []
     water = []
     grass = []
+    age = []
     humidity = []
+    rng = random.Random(GRASS_RNG_SEED)
     world_m = WORLD_WIDTH_MM / 1000.0
 
     for row in range(cell_depth):
@@ -222,10 +228,15 @@ def grids(cell_width, cell_depth):
 
             offsets.append(offset)
             water.append(WATER_POOL_DEPTH_MM if wet else 0)
-            grass.append(grass_height_mm(x_m, y_m))
+            if grass_in_stand(x_m, y_m):
+                grass.append(rng.randint(1, GRASS_MAX))
+                age.append(rng.randint(0, GRASS_AGE_MAX - 1))
+            else:
+                grass.append(0)
+                age.append(0)
             humidity.append(HUMIDITY_SATURATED if wet else 0)
 
-    return offsets, water, grass, humidity
+    return offsets, water, grass, age, humidity
 
 
 def write_layer_header(file, layer_type, layer_name, clock, storage, cell_size, minimum):
@@ -239,8 +250,10 @@ def write_layer_header(file, layer_type, layer_name, clock, storage, cell_size, 
     write_int32(file, minimum)
 
 
-def create_world(output_path, offsets, water, grass, humidity):
-    fertility = bytes(len(grass))
+def create_world(output_path, offsets, water, grass, age, humidity):
+    fertility = bytes(
+        FERTILITY_INITIAL if height > 0 else 0 for height in grass
+    )
 
     with output_path.open("wb") as file:
         file.write(WORLD_MAGIC)
@@ -328,7 +341,7 @@ def create_world(output_path, offsets, water, grass, humidity):
             CELL_SIZE_MM,
             0,
         )
-        file.write(bytes(len(grass)))
+        file.write(bytes(age))
 
 
 def parse_arguments():
@@ -355,8 +368,8 @@ def main():
 
     cell_width = WORLD_WIDTH_MM // CELL_SIZE_MM
     cell_depth = WORLD_DEPTH_MM // CELL_SIZE_MM
-    offsets, water, grass, humidity = grids(cell_width, cell_depth)
-    create_world(output_path, offsets, water, grass, humidity)
+    offsets, water, grass, age, humidity = grids(cell_width, cell_depth)
+    create_world(output_path, offsets, water, grass, age, humidity)
 
     plain = sum(offset == PLAIN_OFFSET_MM for offset in offsets)
     pool = sum(offset == 0 for offset in offsets)
@@ -383,11 +396,20 @@ def main():
         f"  Water:     {WATER_POOL_DEPTH_MM} mm in the pool "
         f"({wet} cells)"
     )
+    living = [height for height in grass if height > 0]
+    living_age = [value for height, value in zip(grass, age) if height > 0]
     print(
-        f"  Grass:     {sum(height > 0 for height in grass)} cells, "
-        f"{min(grass)}..{max(grass)} mm on CLK_0022"
+        f"  Grass:     {len(living)} cells, "
+        f"{min(living)}..{max(living)} mm on CLK_0022"
     )
-    print("  Grass age: 0 on CLK_0026")
+    print(
+        f"  Grass age: {min(living_age)}..{max(living_age)} on CLK_0026"
+    )
+    print(
+        "  Fertility: "
+        f"{sum(height > 0 for height in grass)} cells at "
+        f"{FERTILITY_INITIAL} under grass"
+    )
     print(
         "  Humidity:  saturated "
         f"{sum(value == HUMIDITY_SATURATED for value in humidity)} "

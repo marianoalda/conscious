@@ -90,7 +90,7 @@ A neighbour is one cell east, west, north, or south. On `MODULAR` the index past
 
 Distance from the pool, when reading the result, is the shorter of the straight path and the path that crosses an edge. On this torus the farthest soil is about 13.1 m from the shore. A closed world does not fold that path. The east border of this pool is 5.4 m of soil past the shore, and humidity stops there instead of re-entering from the west.
 
-Grass is not a second distance. The divisor is the published height of the cell that contains the centre, found with `world_cell_at`. Modularity does not move that sample. The shipped ring was written with straight distance from the pool: 255 on the pool and its rim, falling in a straight line to 0 at 5 m past the rim. It ends before the east edge, so the shade does not cross the seam. Near the shore the divisor is 0.5. At 5 m and beyond it is 1.
+Grass is not a second distance. The divisor is the published height of the cell that contains the centre, found with `world_cell_at`. Modularity does not move that sample. The shipped ring covers the pool and 5 m past the rim, with a random height from 1 to 255 in each living cell. It ends before the east edge, so the shade does not cross the seam. Under a tall plant the divisor is near 0.5. At 5 m and beyond it is 1.
 
 The steady balance on a soil cell is
 

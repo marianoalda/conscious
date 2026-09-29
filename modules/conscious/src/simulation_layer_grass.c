@@ -16,6 +16,18 @@ static const int grass_deltas[4][2] = {
     {0, -1}
 };
 
+/* Eight fertility neighbours of a death: orthogonal and diagonal. */
+static const int grass_moore[8][2] = {
+    {1, 0},
+    {-1, 0},
+    {0, 1},
+    {0, -1},
+    {1, 1},
+    {1, -1},
+    {-1, 1},
+    {-1, -1}
+};
+
 static double *grass_carry;
 static uint64_t grass_carry_count;
 static uint64_t grass_births_cycle;
@@ -281,13 +293,58 @@ static void grass_zero_height(
     }
 }
 
+/*
+ * Fertility spent to grow from 0 mm to this height. Death returns
+ * twice this amount: half on the cell, half split among the eight
+ * Moore neighbours.
+ */
+static int32_t grass_fertility_to_height(uint8_t height)
+{
+    return (int32_t)FERTILITY_UPTAKE_PER_MM * (int32_t)height;
+}
+
+static void grass_post_fertility(
+    const world_state_t *world,
+    const world_u8_payload_t *grass,
+    uint32_t columns,
+    uint32_t index,
+    int32_t delta)
+{
+    uint32_t east_mm;
+    uint32_t north_mm;
+
+    if (delta == 0 ||
+        world == NULL ||
+        grass == NULL ||
+        columns == 0) {
+        return;
+    }
+
+    east_mm =
+        (index % columns) * grass->cell_size +
+        grass->cell_size / 2;
+    north_mm =
+        (index / columns) * grass->cell_size +
+        grass->cell_size / 2;
+    fertility_add_grass_delta(world, east_mm, north_mm, delta);
+}
+
 static void grass_die(
     const world_state_t *world,
     world_u8_payload_t *grass,
     world_u8_payload_t *age,
+    uint32_t columns,
+    uint32_t rows,
     uint32_t index,
     uint8_t height)
 {
+    int32_t spent;
+    int32_t home;
+    int32_t share;
+    uint32_t column;
+    uint32_t row;
+    uint32_t d;
+
     grass_zero_height(grass, index);
 
     if (index < grass_carry_count) {
@@ -295,10 +352,44 @@ static void grass_die(
     }
 
     grass_zero_age(age, index);
-    fertility_add_grass_delta_at(
-        world,
-        index,
-        grass_death_fertility_return(height));
+
+    spent = grass_fertility_to_height(height);
+
+    if (spent <= 0) {
+        return;
+    }
+
+    /*
+     * Half stays here (the budget that grew this height). The other
+     * half is the same amount, split equally among eight neighbours.
+     * Units that do not divide by 8, and shares of a missing CLOSED
+     * neighbour, stay on this cell so the world does not lose N.
+     */
+    share = spent / 8;
+    home = spent + (spent % 8);
+    column = index % columns;
+    row = index / columns;
+
+    for (d = 0; d < 8; d++) {
+        uint32_t neighbor;
+
+        if (!world_neighbor(
+                world,
+                columns,
+                rows,
+                column,
+                row,
+                grass_moore[d][0],
+                grass_moore[d][1],
+                &neighbor)) {
+            home += share;
+            continue;
+        }
+
+        grass_post_fertility(world, grass, columns, neighbor, share);
+    }
+
+    grass_post_fertility(world, grass, columns, index, home);
 }
 
 static bool grass_can_birth(
@@ -528,7 +619,14 @@ void simulate_grass(
         }
 
         if (cell_age >= (uint8_t)GRASS_AGE_MAX) {
-            grass_die(world, grass, age, (uint32_t)i, height);
+            grass_die(
+                world,
+                grass,
+                age,
+                columns,
+                rows,
+                (uint32_t)i,
+                height);
             grass_deaths_cycle++;
             grass_deaths_total++;
             continue;

@@ -30,6 +30,10 @@ All integers are big-endian.
 Usage, from the modules directory:
 
     ./utils/create_world_v3_pool_mountain.py
+
+That file is the source for create_world_v3_po_mo_fer_hu_gr.py, which
+adds humidity, fertility, grass, and grass age. See the root README
+for the full rebuild and the world.bin hard link.
 """
 
 import argparse

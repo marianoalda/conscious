@@ -1096,7 +1096,6 @@ int main(int argc, char **argv)
         uint64_t births_total;
         uint64_t deaths_total;
         world_tick_t age;
-        const world_layer_t *grass_layer;
         const char *name;
         uint64_t nonzero;
         double min;
@@ -1143,38 +1142,36 @@ int main(int argc, char **argv)
             births_total,
             deaths_total);
 
-        grass_layer = NULL;
-
         if (world.layers != NULL) {
             uint32_t i;
 
             for (i = 0; i < world.layer_count; i++) {
-                if (world.layers[i] != NULL &&
-                    world.layers[i]->type == WORLD_LAYER_GRASS) {
-                    grass_layer = world.layers[i];
-                    break;
+                const world_layer_t *layer = world.layers[i];
+
+                if (layer != NULL &&
+                    (layer->type == WORLD_LAYER_GRASS ||
+                     layer->type == WORLD_LAYER_GRASSAGE ||
+                     layer->type == WORLD_LAYER_FERTILITY) &&
+                    compute_layer_stats(
+                        &world,
+                        layer,
+                        &name,
+                        &nonzero,
+                        &min,
+                        &mean,
+                        &max,
+                        &stddev)) {
+                    printf(
+                        "%s  nz=%" PRIu64
+                        "  min=%.0f  mean=%.2f  max=%.0f  sd=%.2f\n",
+                        name,
+                        nonzero,
+                        min,
+                        mean,
+                        max,
+                        stddev);
                 }
             }
-        }
-
-        if (grass_layer != NULL &&
-            compute_layer_stats(
-                &world,
-                grass_layer,
-                &name,
-                &nonzero,
-                &min,
-                &mean,
-                &max,
-                &stddev)) {
-            printf(
-                "%s  nz=%" PRIu64 "  min=%.0f  mean=%.2f  max=%.0f  sd=%.2f\n",
-                name,
-                nonzero,
-                min,
-                mean,
-                max,
-                stddev);
         }
 
         simulation_destroy(simulation);

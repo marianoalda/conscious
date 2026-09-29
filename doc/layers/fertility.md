@@ -2,7 +2,7 @@
 
 `TYPE_FERTILITY`, name `LYR_FERTILITY`.
 
-Soil fertility. The stored cell is the sum of the living soil biome and the nutrients it mineralises. On disk, 0 is sterile and 255 is the maximum. Storage is `ST_8`, the cell size is 100 mm, and the minimum field is 0. The shipped world is an empty grid on `CLK_0016` (65536 ms).
+Soil fertility. The stored cell is the sum of the living soil biome and the nutrients it mineralises. On disk, 0 is sterile and 255 is the maximum. Storage is `ST_8`, the cell size is 100 mm, and the minimum field is 0. The shipped world uses `CLK_0016` (65536 ms). Cells under living grass start at 128 (half of 255); the rest start at 0.
 
 ## Evolution
 
@@ -22,7 +22,7 @@ The function owns every change of the fertility grid. Humidity, water, and the h
 
 The step has already copied `published` into `pending`. The operations below write `pending`. `published` stays as it was until every due layer has finished reading.
 
-**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Birth and growth subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death of old age adds `FERTILITY_RETURN_PER_MM` (2) times the height that dies. The inbox is then zero.
+**1. Fold grass deltas.** Each cell adds the unposted signed delta and the fractional remainder from the previous wake. Birth and growth subtract `FERTILITY_UPTAKE_PER_MM` (1) per millimetre. Death of old age adds twice the fertility that would grow the height that dies: half on that cell, half split among its eight neighbours. The inbox is then zero.
 
 **2. Standing flood.** Drought does not change the stored number. In a single channel, biome death becomes nutrient in the same cell, so the net is zero. What dryness does is close the factory: a later grass function would not grow, and grass that dies would be the N pulse. Waterlogging is different. Above 85 % of saturation the cell loses up to 2 % of its store per day to anaerobic gas:
 
@@ -63,7 +63,7 @@ The heightmap viewer does not paint this layer.
 | Humidity          | Published field. The flux across each edge is the carrier. Same clock as this layer; a different divisor repeats the flux walk, see [Clock divisors on coupled layers](README.md#clock-divisors-on-coupled-layers). |
 | Static water      | Wet cells count as humidity 65535 when computing that flux. Water is unchanged. |
 | Heightmap         | Published slope, through humidity's free-surface head.     |
-| Grass             | Signed inbox, folded here. Birth and growth subtract one unit per millimetre. Old-age death posts twice the height that dies. Grass height is not read. |
+| Grass             | Signed inbox, folded here. Birth and growth subtract one unit per millimetre. Old-age death posts twice the fertility of the height that dies, half here and half among eight neighbours. Grass height is not read. |
 | Diffuse daylight  | None.                                                      |
 
 Fertility writes no other layer. The grass inbox is not part of the file.
