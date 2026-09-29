@@ -94,8 +94,8 @@ The simulation runs in its own thread. `main` can pause it and wait until the cu
 From `modules/conscious`:
 
 ```text
-[SIMULATING]  … ms/s  x…  age: … ms  [P]ausar - [Q]uitar - [E]stadísticas
-[ON HOLD]  [S]eguir - [I]ncremento - snapsho[T] - [Q]uitar - [E]stadísticas
+[SIMULATING]  … ms/s  x…  age: … ms  [P]ause - [Q]uit - [E] stats
+[ON HOLD]  [S] resume - [I]ncrement - snapsho[T] - [Q]uit - [E] stats
 ```
 
 The rate is world milliseconds per second of wall time. The factor `x` is that rate divided by 1000: at 10000 ms/s the world runs at x10 relative to real time.
@@ -159,7 +159,7 @@ colours are in [modules/utils/world-view/README.md](modules/utils/world-view/REA
 - [Gemini conversation including the own basic theory about artificial consciousness](https://share.gemini.google/azB9mMfjqQD8)
 - [Original project statement](README.original.md)
 
-## Ideas futuras
+## Future ideas
 
 These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) names which of them is expected in which version; 0.2 is a multithreaded layer of living beings with behaviour. The rest stay here until they are named for a release.
 
@@ -173,7 +173,7 @@ These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) 
 - Compatibility among engines beyond the world file: a written account of which features each engine requires, beyond tags and releases.
 - Automation of build and execution beyond `make` in `modules/conscious`.
 
-## Obsoleto
+## Obsolete
 
 These phrases from the original statement no longer match the code. They are kept here so the old text is not read as the design.
 

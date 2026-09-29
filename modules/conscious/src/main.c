@@ -405,10 +405,10 @@ static bool compute_layer_stats(
 static void print_operator_commands(main_state_t state)
 {
     if (state == SIMULATING) {
-        fputs("[P]ausar - [Q]uitar - [E]stadísticas", stdout);
+        fputs("[P]ause - [Q]uit - [E] stats", stdout);
     } else {
         fputs(
-            "[S]eguir - [I]ncremento - snapsho[T] - [Q]uitar - [E]stadísticas",
+            "[S] resume - [I]ncrement - snapsho[T] - [Q]uit - [E] stats",
             stdout);
     }
 }

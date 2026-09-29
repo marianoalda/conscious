@@ -52,7 +52,7 @@ humidity  = 1 if H ≥ 0.5 · 65535, else H / (0.5 · 65535)
 gain      = 5 · days · radiation · fertility · humidity
 ```
 
-Fertility and humidity are limiting only below 50 % of their stored maximum. Above that the factor is 1. Night, a missing light layer, or a dry or sterile cell stops growth. Whole millimetres are applied and paid at `FERTILITY_UPTAKE_PER_MM` each, limited by room up to 255 and by fertility still in the inbox. The unused fraction of a millimetre stays in a remainder that is not in the file. Operator `[E]`stadísticas on this layer also shows `born` and `died` for the last wake, and `Σborn` / `Σdied` since load.
+Fertility and humidity are limiting only below 50 % of their stored maximum. Above that the factor is 1. Night, a missing light layer, or a dry or sterile cell stops growth. Whole millimetres are applied and paid at `FERTILITY_UPTAKE_PER_MM` each, limited by room up to 255 and by fertility still in the inbox. The unused fraction of a millimetre stays in a remainder that is not in the file. Operator `[E] stats` on this layer also shows `born` and `died` for the last wake, and `Σborn` / `Σdied` since load.
 
 ## Dependencies
 
