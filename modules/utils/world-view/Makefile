@@ -3,7 +3,7 @@ CFLAGS = -Wall -Wextra -std=c11 -D_POSIX_C_SOURCE=200809L -I../../conscious/src
 LDLIBS = -lGL -lGLU -lX11 -lm
 
 TARGET = build/world-view
-WORLD_SRCS = world.c world_io.c world_v0.c world_v1.c world_v2.c world_v3.c
+WORLD_SRCS = world.c world_io.c world_v0.c world_v1.c world_v2.c world_v3.c world_v4.c world_species_rabbit.c
 WORLD_OBJS = $(WORLD_SRCS:%.c=build/%.o)
 
 .PHONY: all clean

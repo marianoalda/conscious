@@ -58,6 +58,9 @@ static const char *layer_type_name(world_layer_type_t type)
         case WORLD_LAYER_GRASSAGE:
             return WORLD_LAYER_TYPE_GRASSAGE;
 
+        case WORLD_LAYER_INDIVIDUAL:
+            return WORLD_LAYER_TYPE_INDIVIDUAL;
+
         default:
             return "unknown";
     }
@@ -86,6 +89,9 @@ static const char *layer_stored_name(world_layer_type_t type)
 
         case WORLD_LAYER_GRASSAGE:
             return WORLD_LAYER_NAME_GRASSAGE;
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return WORLD_LAYER_NAME_INDIVIDUAL;
 
         default:
             return "unknown";
@@ -219,6 +225,24 @@ static void print_loaded_world(const world_state_t *world)
                 grid->cell_size,
                 WORLD_DISTANCE_UNIT);
             printf("      value: uint8\n");
+        }
+
+        if (layer->type == WORLD_LAYER_INDIVIDUAL &&
+            layer->payload != NULL) {
+            const world_individual_payload_t *payload = layer->payload;
+
+            printf("      species: %.32s\n", payload->species);
+            printf(
+                "      depth: %s\n",
+                payload->depth == WORLD_STORAGE_DEPTH_FUNCTIONAL ?
+                    WORLD_STORAGE_DEPTH_FUNCTIONAL_VALUE :
+                    WORLD_STORAGE_DEPTH_DEEP_VALUE);
+            printf(
+                "      species_version: %" PRIu32 "\n",
+                payload->species_version);
+            printf(
+                "      individuals: %" PRIu32 "\n",
+                payload->count);
         }
     }
 }
@@ -382,6 +406,20 @@ static bool compute_layer_stats(
 
             for (i = 0; i < cell_count; i++) {
                 layer_stats_add(&acc, (double)grid->published[i]);
+            }
+            break;
+        }
+
+        case WORLD_LAYER_INDIVIDUAL: {
+            const world_individual_payload_t *payload = layer->payload;
+            uint32_t n;
+
+            if (payload->individuals == NULL && payload->count > 0) {
+                return false;
+            }
+
+            for (n = 0; n < payload->count; n++) {
+                layer_stats_add(&acc, (double)payload->individuals[n].id);
             }
             break;
         }
@@ -1147,6 +1185,41 @@ int main(int argc, char **argv)
 
             for (i = 0; i < world.layer_count; i++) {
                 const world_layer_t *layer = world.layers[i];
+
+                if (layer != NULL &&
+                    layer->type == WORLD_LAYER_INDIVIDUAL &&
+                    layer->payload != NULL) {
+                    const world_individual_payload_t *payload =
+                        layer->payload;
+                    uint32_t n;
+
+                    printf(
+                        "individual %.*s  count=%" PRIu32 "\n",
+                        (int)WORLD_SPECIES_FIELD_BYTES,
+                        payload->species,
+                        payload->count);
+
+                    if (payload->individuals == NULL) {
+                        continue;
+                    }
+
+                    for (n = 0; n < payload->count; n++) {
+                        const world_individual_t *ind =
+                            &payload->individuals[n];
+
+                        printf(
+                            "  id=%" PRIu32
+                            "  x=%" PRId32
+                            "  y=%" PRId32
+                            "  z=%" PRId32
+                            "  ori=%" PRId32 "\n",
+                            ind->id,
+                            ind->x_mm,
+                            ind->y_mm,
+                            ind->z_mm,
+                            ind->orientation_mrad);
+                    }
+                }
 
                 if (layer != NULL &&
                     (layer->type == WORLD_LAYER_GRASS ||

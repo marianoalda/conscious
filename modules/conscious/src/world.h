@@ -5,9 +5,10 @@
 #include <stdint.h>
 
 #define WORLD_MAGIC "CWLD"
-#define WORLD_CURRENT_VERSION 3
+#define WORLD_CURRENT_VERSION 4
 
 #define WORLD_LAYER_MAGIC "_LYR"
+#define WORLD_INDIVIDUAL_MAGIC "_IND"
 #define WORLD_LAYER_TYPE_HEIGHTMAP "TYPE_HEIGHTMAP"
 #define WORLD_LAYER_NAME_HEIGHTMAP "LYR_HEIGHTMAP"
 #define WORLD_LAYER_TYPE_STATICWATER "TYPE_STATICWATER"
@@ -22,10 +23,19 @@
 #define WORLD_LAYER_NAME_GRASS "LYR_GRASS"
 #define WORLD_LAYER_TYPE_GRASSAGE "TYPE_GRASSAGE"
 #define WORLD_LAYER_NAME_GRASSAGE "LYR_GRASSAGE"
+#define WORLD_LAYER_TYPE_INDIVIDUAL "TYPE_INDIVIDUAL"
+#define WORLD_LAYER_NAME_INDIVIDUAL "LYR_INDIVIDUAL"
+#define WORLD_STORAGE_DEPTH_FUNCTIONAL_VALUE "FUNCTIONAL"
+#define WORLD_STORAGE_DEPTH_DEEP_VALUE "DEEP"
 #define WORLD_LAYER_EVOLUTION_NONE "EV_N"
 #define WORLD_LAYER_STORAGE_DENSE "ST_D"
 #define WORLD_LAYER_STORAGE_U8 "ST_8"
 #define WORLD_LAYER_STORAGE_U16 "ST16"
+
+/* Species string field on disk (TYPE_INDIVIDUAL). */
+#define WORLD_SPECIES_FIELD_BYTES 32
+/* Storage-depth string field on disk. */
+#define WORLD_STORAGE_DEPTH_FIELD_BYTES 16
 
 /* Fertility, grass, and humidity use a 10 cm cell. */
 #define WORLD_U8_CELL_MM 100
@@ -81,8 +91,35 @@ typedef enum {
     WORLD_LAYER_HUMIDITY,       /* 0 dry, 65535 saturated */
     WORLD_LAYER_FERTILITY,      /* 0 sterile, 255 maximum fertility */
     WORLD_LAYER_GRASS,          /* millimetres of height, 0 bare, 255 maximum */
-    WORLD_LAYER_GRASSAGE        /* age in days, 0 dead, 255 dies of old age */
+    WORLD_LAYER_GRASSAGE,       /* age in days, 0 dead, 255 dies of old age */
+    WORLD_LAYER_INDIVIDUAL      /* static species; one record per being */
 } world_layer_type_t;
+
+typedef enum {
+    WORLD_STORAGE_DEPTH_FUNCTIONAL, /* pose + basic behaviour params */
+    WORLD_STORAGE_DEPTH_DEEP        /* FUNCTIONAL plus mind; not used yet */
+} world_storage_depth_t;
+
+/*
+ * One individual in a TYPE_INDIVIDUAL layer (FUNCTIONAL pose record).
+ * Orientation is milliradians: 0 = east (+X), positive CCW about +Z.
+ * Species-specific layouts live in world_species_*.h.
+ */
+typedef struct {
+    uint32_t id;                /* serial; nonzero */
+    int32_t x_mm;
+    int32_t y_mm;
+    int32_t z_mm;
+    int32_t orientation_mrad;
+} world_individual_t;
+
+typedef struct {
+    char species[WORLD_SPECIES_FIELD_BYTES];
+    world_storage_depth_t depth;
+    uint32_t species_version;
+    uint32_t count;
+    world_individual_t *individuals;
+} world_individual_payload_t;
 
 /*
  * A dense grid keeps two cell buffers of the same size.
@@ -157,7 +194,7 @@ typedef struct {
     world_modularity_t modularity;
     world_tick_t age;           /* milliseconds since tick 0, which is 00:00 */
     uint32_t layer_count;
-    world_layer_t **layers;     /* one layer of each type at most */
+    world_layer_t **layers;     /* at most one of each dense type; many TYPE_INDIVIDUAL */
 } world_state_t;
 
 /* Read any supported version. Older files gain the defaults of later ones. */
@@ -165,7 +202,7 @@ world_error_t world_load(
     const char *filename,
     world_state_t *world);
 
-/* Write version 3. The file stores published grids only. */
+/* Write version 4. The file stores published grids and individual lists. */
 world_error_t world_serialize(
     const char *filename,
     const world_state_t *world);
@@ -252,5 +289,23 @@ bool world_neighbor(
     int delta_column,
     int delta_row,
     uint32_t *index);
+
+/*
+ * Future helpers (declared for the format; behaviour not wired yet).
+ *
+ * world_individual_alloc_id — unused serial for a species layer
+ *   (e.g. max(existing)+1).
+ * world_individual_surface_z_mm — heightmap elevation at (x,y) for a
+ *   being that walks on the surface.
+ */
+uint32_t world_individual_alloc_id(
+    const world_state_t *world,
+    const char *species);
+
+bool world_individual_surface_z_mm(
+    const world_state_t *world,
+    int32_t x_mm,
+    int32_t y_mm,
+    int32_t *z_mm);
 
 #endif

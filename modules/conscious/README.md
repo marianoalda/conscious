@@ -23,7 +23,9 @@ Useful options: `-h`, `-v`, `-d`, `-c FILE`, `-n NAME`, `-w FILE`, `-r MS`. `--r
 src/main.c                 process, operator UI, configuration
 src/simulation.c           due layers, publish, simulation thread
 src/simulation_layer_*.c   daylight, humidity, fertility, grass, grass age
-src/world*.c               load, save, format versions 0..3
+src/simulation_species_*.c provisional / species behaviour (e.g. rabbit)
+src/world*.c               load, save, format versions 0..4
+src/world_species_*.c      individual-species serialize/deserialize
 config/                    development and shipped run configs
 tests/                     standalone checks for grass and humidity
 ```

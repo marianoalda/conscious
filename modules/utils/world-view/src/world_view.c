@@ -66,6 +66,8 @@ typedef struct {
     float *corner_grassage_m;
     float *cell_grass_alpha;
     float *corner_humidity_m;
+    vec3 *individuals;
+    uint32_t individual_count;
     float datum_m;
     float sheet_reach_m; /* greatest elevation; saturated underside depth */
     float span_m;
@@ -117,6 +119,8 @@ static const float grass_blue = 0.12f;
 static const float humidity_red = 0.12f;
 static const float humidity_green = 0.22f;
 static const float humidity_blue = 0.72f;
+/* 10 cm radius in world metres. */
+static const float individual_radius_m = 0.10f;
 
 static void die(const char *message)
 {
@@ -297,6 +301,7 @@ static void free_mesh(void)
     free(mesh.corner_grassage_m);
     free(mesh.cell_grass_alpha);
     free(mesh.corner_humidity_m);
+    free(mesh.individuals);
     free(mesh.corners);
     memset(&mesh, 0, sizeof(mesh));
 }
@@ -616,6 +621,62 @@ static int build_mesh(const world_state_t *world)
         }
     }
 
+    {
+        uint32_t layer_i;
+        uint32_t total = 0;
+        uint32_t written = 0;
+
+        for (layer_i = 0; layer_i < world->layer_count; layer_i++) {
+            const world_layer_t *layer = world->layers[layer_i];
+            const world_individual_payload_t *payload;
+
+            if (layer == NULL ||
+                layer->type != WORLD_LAYER_INDIVIDUAL ||
+                layer->payload == NULL) {
+                continue;
+            }
+            payload = layer->payload;
+            total += payload->count;
+        }
+
+        if (total > 0) {
+            mesh.individuals = calloc(total, sizeof(*mesh.individuals));
+            if (mesh.individuals == NULL) {
+                free_mesh();
+                return -1;
+            }
+            mesh.individual_count = total;
+
+            for (layer_i = 0; layer_i < world->layer_count; layer_i++) {
+                const world_layer_t *layer = world->layers[layer_i];
+                const world_individual_payload_t *payload;
+                uint32_t n;
+
+                if (layer == NULL ||
+                    layer->type != WORLD_LAYER_INDIVIDUAL ||
+                    layer->payload == NULL) {
+                    continue;
+                }
+                payload = layer->payload;
+                if (payload->individuals == NULL) {
+                    continue;
+                }
+                for (n = 0; n < payload->count; n++) {
+                    const world_individual_t *ind = &payload->individuals[n];
+
+                    mesh.individuals[written].x =
+                        (float)((double)ind->x_mm / 1000.0);
+                    mesh.individuals[written].y =
+                        (float)((double)ind->y_mm / 1000.0);
+                    mesh.individuals[written].z =
+                        (float)((double)ind->z_mm / 1000.0);
+                    written++;
+                }
+            }
+            mesh.individual_count = written;
+        }
+    }
+
     return 0;
 }
 
@@ -822,6 +883,70 @@ static void draw_active_undersheet(void)
     }
 }
 
+/*
+ * Camera-facing black disk, 10 cm world radius. Drawn in the view
+ * plane so it stays circular at any angle; perspective still scales
+ * it with distance. Pulled a little toward the camera to clear the
+ * terrain depth (same role as polygon offset on grass/water).
+ */
+static void draw_individuals(void)
+{
+    uint32_t i;
+    const int segments = 24;
+    const float toward_camera_m = 0.02f;
+    float mv[16];
+    float right_x;
+    float right_y;
+    float right_z;
+    float up_x;
+    float up_y;
+    float up_z;
+    float toward_x;
+    float toward_y;
+    float toward_z;
+
+    if (mesh.individuals == NULL || mesh.individual_count == 0) {
+        return;
+    }
+
+    glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+    right_x = mv[0];
+    right_y = mv[4];
+    right_z = mv[8];
+    up_x = mv[1];
+    up_y = mv[5];
+    up_z = mv[9];
+    toward_x = -mv[2];
+    toward_y = -mv[6];
+    toward_z = -mv[10];
+
+    glDisable(GL_BLEND);
+    glColor3f(0.0f, 0.0f, 0.0f);
+    for (i = 0; i < mesh.individual_count; i++) {
+        const vec3 *centre = &mesh.individuals[i];
+        float cx = centre->x + toward_camera_m * toward_x;
+        float cy = centre->y + toward_camera_m * toward_y;
+        float cz = centre->z + toward_camera_m * toward_z;
+        int s;
+
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex3f(cx, cy, cz);
+        for (s = 0; s <= segments; s++) {
+            float angle =
+                (float)(2.0 * 3.14159265358979323846 * (double)s /
+                        (double)segments);
+            float ca = cosf(angle);
+            float sa = sinf(angle);
+
+            glVertex3f(
+                cx + individual_radius_m * (ca * right_x + sa * up_x),
+                cy + individual_radius_m * (ca * right_y + sa * up_y),
+                cz + individual_radius_m * (ca * right_z + sa * up_z));
+        }
+        glEnd();
+    }
+}
+
 static void draw_mesh(void)
 {
     uint32_t column;
@@ -887,6 +1012,7 @@ static void draw_mesh(void)
     draw_water();
     glDisable(GL_POLYGON_OFFSET_FILL);
 
+    draw_individuals();
     draw_active_undersheet();
 }
 

@@ -5,6 +5,8 @@
 #include "simulation_layer_humidity.h"
 #include "simulation_layer_grass.h"
 #include "simulation_layer_grassage.h"
+#include "simulation_species_rabbit.h"
+#include "world_species_rabbit.h"
 #include "debug.h"
 
 #include <stdbool.h>
@@ -121,6 +123,9 @@ static void layer_grids(
             *value_size = sizeof(uint8_t);
             break;
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            break;
     }
 }
 
@@ -211,6 +216,9 @@ static void publish_layer(world_state_t *world, world_layer_t *layer)
             grid->pending = previous;
             break;
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            break;
     }
 
     world_refresh_slopes(world, layer);
@@ -248,6 +256,16 @@ static void simulate_layer(
         case WORLD_LAYER_GRASSAGE:
             simulate_grassage(world, layer, tick);
             break;
+
+        case WORLD_LAYER_INDIVIDUAL: {
+            const world_individual_payload_t *payload = layer->payload;
+
+            if (payload != NULL &&
+                world_species_rabbit_is(payload->species)) {
+                simulate_species_rabbit(world, layer, tick);
+            }
+            break;
+        }
     }
 
     world_clamp_layer(world, layer);
@@ -255,9 +273,9 @@ static void simulate_layer(
 }
 
 /*
- * A layer is due from its clock alone. Static water never is, so it
- * stays put even if the file carried a divisor. The stored grid is
- * still readable on ticks when this returns false.
+ * A layer is due from its clock alone, except TYPE_INDIVIDUAL which
+ * wakes on calendar midnights (86400000 ms), and static water which
+ * never wakes even if the file carried a divisor.
  */
 static bool layer_is_due(
     const world_layer_t *layer,
@@ -267,6 +285,10 @@ static bool layer_is_due(
 
     if (layer->type == WORLD_LAYER_STATICWATER) {
         return false;
+    }
+
+    if (layer->type == WORLD_LAYER_INDIVIDUAL) {
+        return tick > 0 && (tick % 86400000ULL) == 0;
     }
 
     if (layer->clock.mode != WORLD_CLOCK_DIVISOR) {
@@ -284,7 +306,8 @@ static bool layer_is_due(
 
 /*
  * First tick at or after `tick` on which this layer is due.
- * CLK_NOEV and static water never return a finite tick.
+ * CLK_NOEV (non-individual) and static water never return a finite tick.
+ * Individuals are due at each calendar midnight.
  */
 static world_tick_t layer_next_due_tick(
     const world_layer_t *layer,
@@ -292,10 +315,25 @@ static world_tick_t layer_next_due_tick(
 {
     world_tick_t period;
     world_tick_t aligned;
+    const world_tick_t day_ms = 86400000ULL;
 
-    if (layer == NULL ||
-        layer->type == WORLD_LAYER_STATICWATER ||
-        layer->clock.mode != WORLD_CLOCK_DIVISOR ||
+    if (layer == NULL || layer->type == WORLD_LAYER_STATICWATER) {
+        return UINT64_MAX;
+    }
+
+    if (layer->type == WORLD_LAYER_INDIVIDUAL) {
+        if ((tick % day_ms) == 0) {
+            return tick;
+        }
+
+        if (tick > UINT64_MAX - day_ms) {
+            return UINT64_MAX;
+        }
+
+        return (tick / day_ms + 1) * day_ms;
+    }
+
+    if (layer->clock.mode != WORLD_CLOCK_DIVISOR ||
         layer->clock.exponent >= 64) {
         return UINT64_MAX;
     }
@@ -368,6 +406,9 @@ static const char *debug_layer_tag(world_layer_type_t type)
 
         case WORLD_LAYER_GRASSAGE:
             return "grassage";
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return "individual";
 
         default:
             return "?";

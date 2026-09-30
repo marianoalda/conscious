@@ -66,6 +66,10 @@ world_error_t world_load(
             error = world_v3_load(file, world);
             break;
 
+        case 4:
+            error = world_v4_load(file, world);
+            break;
+
         default:
             error = WORLD_ERROR_UNSUPPORTED_VERSION;
             break;
@@ -113,7 +117,7 @@ world_error_t world_serialize(
         return error;
     }
 
-    error = world_v3_serialize(
+    error = world_v4_serialize(
         file,
         world);
 
@@ -202,6 +206,10 @@ static void world_free_layer(world_layer_t *layer)
 
             free(grid->published);
             free(grid->pending);
+        } else if (layer->type == WORLD_LAYER_INDIVIDUAL) {
+            world_individual_payload_t *payload = layer->payload;
+
+            free(payload->individuals);
         }
 
         free(layer->payload);
@@ -220,7 +228,8 @@ static world_error_t world_append_layer(
     world_layer_t *layer;
     world_layer_t **grown;
 
-    if (world_find_layer(world, type) != NULL) {
+    if (type != WORLD_LAYER_INDIVIDUAL &&
+        world_find_layer(world, type) != NULL) {
         return WORLD_ERROR_INVALID_FORMAT;
     }
 
@@ -584,6 +593,9 @@ void world_clamp_layer(
             clamp_u8_hi(grid->pending, count, (uint8_t)WORLD_U8_MAX);
             return;
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return;
     }
 }
 
@@ -1076,6 +1088,9 @@ bool world_layer_value(
             *value = (int64_t)grid->published[index];
             return true;
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return false;
     }
 
     return false;
@@ -1126,6 +1141,9 @@ static bool world_layer_cell_size(
             *cell_size = grid->cell_size;
             break;
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return false;
 
         default:
             return false;
@@ -1317,6 +1335,36 @@ bool world_neighbor(
 
     *index = row_index * columns + column_index;
     return true;
+}
+
+/*
+ * Future: allocate a new unused serial for a species layer
+ * (e.g. max(existing ids) + 1). Not wired yet.
+ */
+uint32_t world_individual_alloc_id(
+    const world_state_t *world,
+    const char *species)
+{
+    (void)world;
+    (void)species;
+    return 0;
+}
+
+/*
+ * Future: heightmap elevation at (x,y) for a surface-walking being.
+ * Not wired yet.
+ */
+bool world_individual_surface_z_mm(
+    const world_state_t *world,
+    int32_t x_mm,
+    int32_t y_mm,
+    int32_t *z_mm)
+{
+    (void)world;
+    (void)x_mm;
+    (void)y_mm;
+    (void)z_mm;
+    return false;
 }
 
 /*******************************

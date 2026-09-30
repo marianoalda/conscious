@@ -72,13 +72,17 @@ Draw order:
    north-east, and a small lift from the file's daylight.
 2. **Grass** — green on the same terrain face. Opacity is `height / 255`.
 3. **Static water** — cyan at terrain elevation plus depth (always drawn).
-4. **Underside sheet** (Tab) — one of humidity, fertility, or grass age.
+4. **Individuals** — black camera-facing disks of 10 cm world radius at
+   each being's `(x, y, z)` (always circular on screen; perspective
+   still scales size with distance).
+5. **Underside sheet** (Tab) — one of humidity, fertility, or grass age.
    Each is hung from the heightmap's stored zero (`min_height`) and grows
    downward. Visible from below the terrain.
 
 Layers absent from the file are skipped. All layer types present in the
 file are loaded and stored by `world_load` (heightmap, static water,
-diffuse daylight, humidity, fertility, grass, grass age).
+diffuse daylight, humidity, fertility, grass, grass age, and any
+`TYPE_INDIVIDUAL` species layers).
 
 ### Underside sheets
 

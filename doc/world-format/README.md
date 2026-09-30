@@ -25,7 +25,8 @@ Version 1 introduces the distance fields. Version 2 introduces the layer clock, 
 | 0       | Historical, header only        | [Version 0](v0.md) |
 | 1       | Historical, one heightmap      | [Version 1](v1.md) |
 | 2       | Historical, modularity and clock | [Version 2](v2.md) |
-| 3       | Current format                 | [Version 3](v3.md) |
+| 3       | Previous format                | [Version 3](v3.md) |
+| 4       | Current format                 | [Version 4](v4.md) |
 
 Future versions are added as separate documents. The document of an older version stays in place. A factual error in an older document may be corrected. Its binary layout is not revised in order to describe a newer format.
 
@@ -36,7 +37,12 @@ v0    CWLD + version
 v1    dimensions + one dense heightmap
 v2    world modularity + layer clock
 v3    world age + last simulation tick + further layer blocks
+v4    TYPE_INDIVIDUAL layers (static species, one record per being)
 ```
+
+After version 4, changes to an individual species' on-disk record are
+owned by that species' serialize/deserialize code, not by a new world
+format version, unless the shared individual-layer frame must change.
 
 Version 2 removes version 1's `EV_N` field. The clock is a new field, not a new reading of `EV_N`.
 
@@ -57,6 +63,8 @@ world_load()
     │
     ├── version 3 ──> world_v3_load()
     │
+    ├── version 4 ──> world_v4_load()
+    │
     └── any other version ──> unsupported version
 ```
 
@@ -70,12 +78,13 @@ Fields that an older file does not contain are filled as follows:
 | 1              | `CLOSED`   | 0 ms  | `CLK_NOEV`           | 0 ms                 |
 | 2              | from file  | 0 ms  | from file            | 0 ms                 |
 | 3              | from file  | from file | from file         | from file            |
+| 4              | from file  | from file | from file         | from file            |
 
-Version 0 has no heightmap. Versions 1 and 2 each contain exactly one heightmap. Version 3 contains a sequence of layer blocks; the loader reads until the file ends.
+Version 0 has no heightmap. Versions 1 and 2 each contain exactly one heightmap. Version 3 and 4 contain a sequence of layer blocks; the loader reads until the file ends. Version 4 may include `TYPE_INDIVIDUAL` layers.
 
 ## Writing world files
 
-`world_serialize()` writes version 3.
+`world_serialize()` writes version 4.
 
 Older formats remain readable. They are not used for new files. Loading an older world and saving it upgrades the file:
 
@@ -135,5 +144,6 @@ Fixed text fields are written zero-padded to their full width. The magic, the la
 * [World Format Version 1](v1.md)
 * [World Format Version 2](v2.md)
 * [World Format Version 3](v3.md)
+* [World Format Version 4](v4.md)
 
 Each version document is the specification of that version's bytes. The meaning of each layer, and the state of its simulation function, is in [Layers](../layers/README.md).

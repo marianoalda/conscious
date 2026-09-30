@@ -1,6 +1,11 @@
 # Layers
 
-A layer is one dense grid in the world, with its own cell size and clock. The file format of those grids is [version 3](../world-format/v3.md). This directory describes what each layer means, how that meaning has changed, and what its simulation function does.
+A layer is one published field in the world. Dense layers are grids with
+their own cell size and clock; individual layers hold one record per
+being. Dense file layout is [version 3](../world-format/v3.md); individual
+layers need [version 4](../world-format/v4.md). This directory describes
+what each layer means, how that meaning has changed, and what its
+simulation function does.
 
 The simulation status of a function is one of:
 
@@ -10,6 +15,7 @@ The simulation status of a function is one of:
 | Designed      | The steps below are the current definition. The code does not run them. |
 | Implemented   | The engine runs the definition.                                         |
 | Validated     | The running function has been checked and the result accepted.          |
+| Provisional   | Runs in the engine only as a temporary check; not the real behaviour.  |
 
 ## Status
 
@@ -22,6 +28,7 @@ The simulation status of a function is one of:
 | [Fertility](fertility.md)                  | Implemented   | `ST_8`, 0..255                                    |
 | [Grass](grass.md)                          | Implemented   | `ST_8`, millimetres of height, 0..255             |
 | [Grass age](grass-age.md)                  | Implemented   | `ST_8`, days, 0 dead, 255 dies                    |
+| [Rabbit](rabbit.md) (individual)           | Provisional   | `TYPE_INDIVIDUAL` pose records; see [v4](../world-format/v4.md) |
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
 

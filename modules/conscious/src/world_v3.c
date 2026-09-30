@@ -1516,9 +1516,149 @@ static world_error_t write_layer_v3(
                 grid->published,
                 cell_count);
         }
+
+        case WORLD_LAYER_INDIVIDUAL:
+            return WORLD_ERROR_INVALID_FORMAT;
     }
 
     return WORLD_ERROR_INVALID_FORMAT;
+}
+
+world_error_t world_v3_write_header(
+    FILE *file,
+    const world_state_t *world)
+{
+    world_error_t error;
+
+    error = world_io_write_uint32_be(file, world->width);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_write_uint32_be(file, world->depth);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = write_modularity(file, world->modularity);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    return world_io_write_uint64_be(file, world->age);
+}
+
+world_error_t world_v3_read_header(
+    FILE *file,
+    world_state_t *world)
+{
+    uint32_t width;
+    uint32_t depth;
+    uint64_t age;
+    world_error_t error;
+
+    error = world_io_read_uint32_be(file, &width);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_read_uint32_be(file, &depth);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    if (width == 0 || depth == 0) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    world->width = width;
+    world->depth = depth;
+
+    error = read_modularity(file, world);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    error = world_io_read_uint64_be(file, &age);
+    if (error != WORLD_OK) {
+        return error;
+    }
+
+    world->age = age;
+    return WORLD_OK;
+}
+
+world_error_t world_v3_read_next_layer_marker(
+    FILE *file,
+    int *present)
+{
+    return read_next_layer_marker(file, present);
+}
+
+world_error_t world_v3_check_staticwater_grid(
+    const world_state_t *world)
+{
+    return check_staticwater_grid(world);
+}
+
+world_error_t world_v3_read_clock(
+    FILE *file,
+    world_clock_t *clock)
+{
+    return read_clock(file, clock);
+}
+
+world_error_t world_v3_write_clock(
+    FILE *file,
+    const world_clock_t *clock)
+{
+    return write_clock(file, clock);
+}
+
+world_error_t world_v3_write_padded_string(
+    FILE *file,
+    const char *text,
+    size_t field_size)
+{
+    char buffer[32];
+    size_t length;
+
+    if (field_size == 0 || field_size > sizeof(buffer)) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    memset(buffer, 0, field_size);
+    length = strlen(text);
+    if (length > field_size) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    memcpy(buffer, text, length);
+    if (fwrite(buffer, 1, field_size, file) != field_size) {
+        return WORLD_ERROR_FILE;
+    }
+
+    return WORLD_OK;
+}
+
+world_error_t world_v3_load_one_layer(
+    FILE *file,
+    world_state_t *world)
+{
+    return load_one_layer_v3(file, world);
+}
+
+/* Write one dense (non-individual) layer. Rejects TYPE_INDIVIDUAL. */
+world_error_t world_v3_write_one_layer(
+    FILE *file,
+    const world_state_t *world,
+    const world_layer_t *layer)
+{
+    if (layer != NULL && layer->type == WORLD_LAYER_INDIVIDUAL) {
+        return WORLD_ERROR_INVALID_FORMAT;
+    }
+
+    return write_layer_v3(file, world, layer);
 }
 
 world_error_t world_v3_serialize(
