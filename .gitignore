@@ -1,4 +1,6 @@
-/modules/*/build
+# Build output (any depth, e.g. modules/conscious/build, modules/utils/world-view/build)
+**/build/
+
 /modules/*/logs
 /install/*
 
