@@ -30,8 +30,11 @@ docs.
   light CLI/keys — done.
 
 Beings as a layer of their own, each on their thread, with behaviour,
-inhabiting the world that 0.1 already simulates. The viewer utility lives
-under `modules/utils/world-view` and opens the worlds that version produces.
+inhabiting the world that 0.1 already simulates. Format and FUNCTIONAL
+rabbits are sketched in [doc/beings](doc/beings/README.md); threads in
+[doc/architecture/multithreading.md](doc/architecture/multithreading.md).
+The viewer utility lives under `modules/utils/world-view` and opens the
+worlds that version produces.
 
 ## Later
 

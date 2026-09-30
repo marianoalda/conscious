@@ -4,7 +4,11 @@ This is the Conscious Project, a try to investigate if artificial consciousness 
 
 The original statement of that aim is kept in [README.original.md](README.original.md). What follows is the implementation as it stands.
 
-There are no beings yet. The present code is the time engine and the world those beings would inhabit: a quantized terrain, a clock, and a way to suspend the clock and keep the world. Which slice of the aim belongs to which tag is in [ROADMAP.md](ROADMAP.md).
+There are living individuals in format v4 (`TYPE_INDIVIDUAL`), each on its
+own thread, with only **provisional** rabbit behaviour so far. The denser
+part of the code remains the time engine and the layered world those beings
+inhabit. Which slice of the aim belongs to which tag is in
+[ROADMAP.md](ROADMAP.md). Beings: [doc/beings](doc/beings/README.md).
 
 ## Modules
 
@@ -14,25 +18,36 @@ There are no beings yet. The present code is the time engine and the world those
 
 ## Architecture
 
-One process, three parts:
+One process; threads and ownership:
 
 ```text
-main
- │
- ├── world          persistent state
- │
- └── simulation     the time engine
+cons main                 operator, load/save orchestration
+ ├── world                 persistent state (layers + individuals)
+ └── simulation
+      ├── cons grid       dense-layer clocks (humidity, grass, …)
+      └── cons <TAG> <id> one thread per living being
 ```
 
-`main` owns the lifetime of the simulation. The simulation owns its thread and its synchronization. The world owns the persistent state. The simulation operates on the world; `main` does not see the simulation's internal threads.
+`main` owns the lifetime of the simulation. The simulation owns the grid
+thread and the being threads. The world owns the persistent state. `main`
+does not step layers itself.
 
-The time engine can be suspended. While it runs, one step is one millisecond of world time.
+The time engine can be suspended. While it runs, one dense step is one
+millisecond of world time (empty milliseconds may be skipped). Being
+threads advance on their own clocks for now (unsynchronised with the grid
+except for stop / disappear / reap).
+
+Detail: [doc/architecture/multithreading.md](doc/architecture/multithreading.md).
+Index of architecture notes: [doc/architecture](doc/architecture/README.md).
 
 ## World
 
 The world is a repository. It is quantized in cells. Distances are millimetres. One world tick is one millisecond.
 
-In memory the world holds an array of layers. Each layer has its metadata and a payload with two dense grids of the same size. `published` is the grid other layers, the viewer, and the file see. `pending` is the grid filled during the current tick. Heightmap and static water also keep a four-direction slope buffer of `published`; it is not in the file. A step reads `published` only. When every layer that is due has finished reading, the two grids exchange roles. On disk, version 3 stores that published sequence: a dense heightmap, and any further layer blocks that follow it. Static water (`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell, in W/m², and is the first layer the step updates. Humidity (`TYPE_HUMIDITY`) is a 10 cm grid of 16-bit cells, from 0 (dry) to 65535 (saturated). On its clock it saturates where static water stands, diffuses to orthogonal neighbours in proportion to the humidity difference plus a gravitational term from the published terrain and standing-water slope (1500 mm of rise spends the full range at equilibrium), and evaporates 10 % of the humidity still in the cell per hour at full sun, scaled by the published daylight and by the published grass (height 255 halves the loss). Fertility and grass (`TYPE_FERTILITY`, `TYPE_GRASS`) are 10 cm cells of one byte each. Fertility runs from 0 (sterile) to 255 (maximum). Half of that cell moves with the humidity flux; the rest stays. Standing flood slowly destroys the store; drought does not. Grass is millimetres of height, from 0 to 255, on `CLK_0022` (4194304 ms, about 1.17 hours). A bare cell births at 1 mm when humidity and fertility are above 10 % of their maxima and an orthogonal neighbour is a living plant older than 25 % of the age maximum. A living cell grows 5 mm per calendar day at full sun with fertility and humidity at or above half of each maximum; below half those layers scale the gain, and radiation always scales it. At published age 255 the stand dies: height goes to 0 and fertility receives twice the soil budget of that height, half on the cell and half among eight neighbours. Grass age (`TYPE_GRASSAGE`) is the same 10 cm uint8 grid, in days of `CLK_0026` (a little under one calendar day). Living cells age by one stored day per wake, capped at 255.
+In memory the world holds an array of layers. Each layer has its metadata and a payload with two dense grids of the same size. `published` is the grid other layers, the viewer, and the file see. `pending` is the grid filled during the current tick. Heightmap and static water also keep a four-direction slope buffer of `published`; it is not in the file. A step reads `published` only. When every layer that is due has finished reading, the two grids exchange roles. On disk, version 3 and 4 store that published dense sequence: a heightmap
+and any further layer blocks that follow it. Version 4 may also store
+`TYPE_INDIVIDUAL` lists (see [doc/beings](doc/beings/README.md)). Static water
+(`TYPE_STATICWATER`) is a depth added to the terrain elevation. It does not move or change. Diffuse daylight (`TYPE_DIFFLIGHT`) stores the current irradiance of each cell, in W/m², and is the first layer the step updates. Humidity (`TYPE_HUMIDITY`) is a 10 cm grid of 16-bit cells, from 0 (dry) to 65535 (saturated). On its clock it saturates where static water stands, diffuses to orthogonal neighbours in proportion to the humidity difference plus a gravitational term from the published terrain and standing-water slope (1500 mm of rise spends the full range at equilibrium), and evaporates 10 % of the humidity still in the cell per hour at full sun, scaled by the published daylight and by the published grass (height 255 halves the loss). Fertility and grass (`TYPE_FERTILITY`, `TYPE_GRASS`) are 10 cm cells of one byte each. Fertility runs from 0 (sterile) to 255 (maximum). Half of that cell moves with the humidity flux; the rest stays. Standing flood slowly destroys the store; drought does not. Grass is millimetres of height, from 0 to 255, on `CLK_0022` (4194304 ms, about 1.17 hours). A bare cell births at 1 mm when humidity and fertility are above 10 % of their maxima and an orthogonal neighbour is a living plant older than 25 % of the age maximum. A living cell grows 5 mm per calendar day at full sun with fertility and humidity at or above half of each maximum; below half those layers scale the gain, and radiation always scales it. At published age 255 the stand dies: height goes to 0 and fertility receives twice the soil budget of that height, half on the cell and half among eight neighbours. Grass age (`TYPE_GRASSAGE`) is the same 10 cm uint8 grid, in days of `CLK_0026` (a little under one calendar day). Living cells age by one stored day per wake, capped at 255.
 
 A cell stores an offset above the layer's minimum height:
 
@@ -49,11 +64,20 @@ The heightmap shipped with the current worlds is `CLK_NOEV`. The step walks the 
 
 The world also stores whether it is `CLOSED` or `MODULAR`. That property is saved and loaded. Joining opposite edges is not a rule of one layer. `world_neighbor` answers any layer that asks for an orthogonal neighbour: on `MODULAR` the cell past one side is the cell on the other side, and on `CLOSED` that neighbour does not exist. `world_cell_at` finds the cell that contains a point. A point outside the map has no cell, on either kind of world.
 
-The step itself stays in `modules/conscious/src/simulation.c`: which layer is due, the copy from `published` to `pending`, the publish, and the thread. A layer that changes cells has its own file. Diffuse daylight is `simulation_layer_difflight.c`. Humidity is `simulation_layer_humidity.c`. Fertility is `simulation_layer_fertility.c`. Grass is `simulation_layer_grass.c`. Grass age is `simulation_layer_grassage.c`. The heightmap has no evolution rule yet. Static water never runs.
+The step itself stays in `modules/conscious/src/simulation.c`: which dense
+layer is due, the copy from `published` to `pending`, the publish, and the
+grid thread. A layer that changes cells has its own file. Diffuse daylight
+is `simulation_layer_difflight.c`. Humidity is `simulation_layer_humidity.c`.
+Fertility is `simulation_layer_fertility.c`. Grass is
+`simulation_layer_grass.c`. Grass age is `simulation_layer_grassage.c`.
+Individuals are stepped on their own threads
+(`simulation_individuals.c`, `simulation_species_*.c`). The heightmap has
+no evolution rule yet. Static water never runs.
 
 ### File format
 
-The world file is self-describing. Magic `CWLD`, then a version. Older versions are still read. `world_serialize()` writes version 3 only.
+The world file is self-describing. Magic `CWLD`, then a version. Older
+versions are still read. `world_serialize()` writes **version 4**.
 
 | Version | What it stores                                      |
 | ------- | --------------------------------------------------- |
@@ -61,8 +85,11 @@ The world file is self-describing. Magic `CWLD`, then a version. Older versions 
 | 1       | Dimensions and one dense heightmap                  |
 | 2       | Modularity of the world, and a clock on the layer   |
 | 3       | World age, and the layer's last simulation tick     |
+| 4       | `TYPE_INDIVIDUAL` layers (one record per being)     |
 
-The specification is in [doc/world-format](doc/world-format/README.md). What each layer means, and how far its simulation function has got, is in [doc/layers](doc/layers/README.md).
+The specification is in [doc/world-format](doc/world-format/README.md).
+What each dense layer means is in [doc/layers](doc/layers/README.md).
+Beings (format, FUNCTIONAL, DEEP): [doc/beings](doc/beings/README.md).
 
 ### Files used in development
 
@@ -89,7 +116,10 @@ When the world structure changes, a new file is produced, either by a script or 
 
 ## Time engine
 
-The simulation runs in its own thread. `main` can pause it and wait until the current step has finished, then resume it.
+The dense-layer simulation runs in `cons grid`. `main` (`cons main`) can
+pause it and wait until the current step has finished, then resume it.
+Living beings run in separate threads; see
+[multithreading](doc/architecture/multithreading.md).
 
 From `modules/conscious`:
 
@@ -146,11 +176,12 @@ make
 ./build/world-view ../../data/world-po-mo-fer-hu-gr-v3-day.bin
 ```
 
-The program draws terrain, grass, static water, and a Tab-cycled underside
-sheet (humidity, fertility, or grass age) from a world file. Underside
-sheets hang from the heightmap's stored zero and grow downward; they are
-visible only from below the terrain. Full usage, controls, and layer
-colours are in [modules/utils/world-view/README.md](modules/utils/world-view/README.md).
+The program draws terrain, grass, static water, individuals as
+camera-facing disks, and a Tab-cycled underside sheet (humidity,
+fertility, or grass age) from a world file. Underside sheets hang from
+the heightmap's stored zero and grow downward; they are visible only
+from below the terrain. Full usage, controls, and layer colours are in
+[modules/utils/world-view/README.md](modules/utils/world-view/README.md).
 
 ## References
 
@@ -165,7 +196,7 @@ These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) 
 
 - An open, modular and distributed architecture: the world as a shared memory segment, and beings written in another language (the original example was Smalltalk) so they can evolve and coexist with other differently-evolved beings in the same engine.
 - Beings as a repository and an engine: object oriented, with their own rules, able to evolve so that different specimens with different features (DNA) and feature expressions can exist simultaneously. Able to emit messages. Basic circuits (thirst, hunger, reproduction, cold) in the reality and in the model. A lifecycle. An integrated model of the world and of the being itself, not necessarily synchronized. Surviving instinct as the spark that keeps them alive. Behaviours that trigger anomalies, such as curiosity.
-- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is that place. Static water, diffuse daylight, humidity, fertility, grass, and grass age are there today and change on their clocks. Beings are not.
+- A world of several layers with their own rules: food and its growth, a surface of water, difficulty to walk because grass has grown. A layer may have its own cell size. The array of layers is that place. Static water, diffuse daylight, humidity, fertility, grass, and grass age are there today and change on their clocks. Beings exist as `TYPE_INDIVIDUAL` records with provisional rabbit motion; real behaviour and DEEP minds are not there yet (see [doc/beings](doc/beings/README.md)).
 - The time engine able to be accelerated or slowed down, not only suspended.
 - Snapshots of beings as well as of the world, and external tools that translate to human language what happens in the world and inside the beings: evolution, thoughts, analysis of protolanguage.
 - A world console or control panel: suspend, explain, explain changes between snapshots, translate the world and the beings. A real-time representation, graphical or textual, that can feed other agents. Orders from a remote control panel.
@@ -178,7 +209,7 @@ These are still the aim. They are not in the program. The [roadmap](ROADMAP.md) 
 These phrases from the original statement no longer match the code. They are kept here so the old text is not read as the design.
 
 - The world is not itself the engine. It is the repository. The simulation engine is separate and is what advances the tick. Rules such as "the grass grows every tick" are not implemented. The step selects the layers that are due. Diffuse daylight evolves with the world age. Humidity saturates, diffuses with a capillary head from terrain slope, and evaporates. Fertility folds the grass inbox, loses a little under flood, and follows the humidity flux. Grass is born, grows, and dies of old age on `CLK_0022`. Grass age only counts days. The heightmap and static water do not change.
-- The runtime world is not one embedded heightmap. It is an array of layer pointers. A version 3 file is the same sequence of layer blocks, read until the file ends.
-- New worlds are not written as version 0 or version 1. Those formats, and version 2, are read. Saving writes version 3.
+- The runtime world is not one embedded heightmap. It is an array of layer pointers. A version 3 or 4 file is the same sequence of layer blocks, read until the file ends; version 4 may include individual layers.
+- New worlds are not written as version 0 or version 1. Those formats, and versions 2 and 3, are read. Saving writes version 4.
 - "How to automate the build" is no longer an open question for this module. The build is `make` in `modules/conscious`.
 - Tags, releases, and GitHub issues are in use; the open point is documenting engine feature requirements across versions.

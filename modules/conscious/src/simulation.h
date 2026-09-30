@@ -4,6 +4,7 @@
 #include "world.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct simulation simulation_t;
@@ -36,6 +37,15 @@ int simulation_wait_until_paused(simulation_t *simulation);
 
 /* Age the running world has reached, which may be ahead of world->age. */
 world_tick_t simulation_get_world_tick(simulation_t *simulation);
+
+/*
+ * Being threads: one per TYPE_INDIVIDUAL record. Start after load /
+ * after a save quiesce; stop before serialize and on shutdown.
+ */
+int simulation_individuals_start(simulation_t *simulation);
+void simulation_individuals_stop(simulation_t *simulation);
+void simulation_individuals_reap(simulation_t *simulation);
+size_t simulation_individuals_live_count(const simulation_t *simulation);
 
 void simulation_destroy(simulation_t *simulation);
 

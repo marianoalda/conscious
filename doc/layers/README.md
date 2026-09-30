@@ -3,9 +3,10 @@
 A layer is one published field in the world. Dense layers are grids with
 their own cell size and clock; individual layers hold one record per
 being. Dense file layout is [version 3](../world-format/v3.md); individual
-layers need [version 4](../world-format/v4.md). This directory describes
-what each layer means, how that meaning has changed, and what its
-simulation function does.
+layers need [version 4](../world-format/v4.md). Beings (individuals) are
+documented in [doc/beings](../beings/README.md). This directory describes
+what each **dense** layer means, how that meaning has changed, and what
+its simulation function does.
 
 The simulation status of a function is one of:
 
@@ -28,7 +29,7 @@ The simulation status of a function is one of:
 | [Fertility](fertility.md)                  | Implemented   | `ST_8`, 0..255                                    |
 | [Grass](grass.md)                          | Implemented   | `ST_8`, millimetres of height, 0..255             |
 | [Grass age](grass-age.md)                  | Implemented   | `ST_8`, days, 0 dead, 255 dies                    |
-| [Rabbit](rabbit.md) (individual)           | Provisional   | `TYPE_INDIVIDUAL` pose records; see [v4](../world-format/v4.md) |
+| [Rabbit](rabbit.md) (individual)           | Provisional   | See [doc/beings](../beings/README.md); on-disk [v4](../world-format/v4.md) |
 
 Diffuse daylight was compared by hand with the half-sine curve on the pool world. That check is not a validation recorded in the repository, so the status stays implemented.
 
@@ -36,7 +37,16 @@ The development `world.bin` is a hard link to `modules/data/world-po-mo-fer-hu-g
 
 ## What the engine does today
 
-On a tick the engine visits each layer whose clock is due. Static water is never due. For every other due layer it copies `published` into `pending`, calls the layer function, clamps that layer's published and pending cells to the stored range, and, after every due layer has been called, swaps the two buffers. Other layers read `published` only. The file stores `published` only. The same clamp runs when a grid is appended from a file: daylight is 0..`max_irradiance`, humidity is 0..65535, fertility, grass, and grass age are 0..255. Heightmap and static water are already unsigned 32-bit.
+On a tick the dense-layer engine visits each layer whose clock is due.
+Static water and `TYPE_INDIVIDUAL` are never due here (individuals have
+their own threads). For every other due layer it copies `published` into
+`pending`, calls the layer function, clamps that layer's published and
+pending cells to the stored range, and, after every due layer has been
+called, swaps the two buffers. Other layers read `published` only. The
+file stores `published` only. The same clamp runs when a grid is appended
+from a file: daylight is 0..`max_irradiance`, humidity is 0..65535,
+fertility, grass, and grass age are 0..255. Heightmap and static water
+are already unsigned 32-bit.
 
 Milliseconds on which no layer is due change nothing. Unless `step_delay_us` is set, the engine jumps `world_tick` to the next due tick, or to an incremental stop. Layers still measure elapsed time from `last_simulation_tick`, so a jump is the same as many empty milliseconds.
 

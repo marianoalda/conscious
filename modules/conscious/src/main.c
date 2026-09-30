@@ -17,6 +17,7 @@
 #include "world.h"
 #include "simulation.h"
 #include "simulation_layer_grass.h"
+#include "thread_name.h"
 #include "debug.h"
 
 typedef enum {
@@ -863,6 +864,8 @@ static int save_snapshot(
 
     world_tick = simulation_get_world_tick(simulation);
 
+    simulation_individuals_stop(simulation);
+
     snapshot_world = *world;
     snapshot_world.age = world_tick;
 
@@ -877,6 +880,7 @@ static int save_snapshot(
         fprintf(
             stderr,
             "Error: Snapshot file path is too long.\n");
+        simulation_individuals_start(simulation);
         return -1;
     }
 
@@ -885,6 +889,14 @@ static int save_snapshot(
             stderr,
             "Error: Unable to save snapshot: %s\n",
             snapshot_path);
+        simulation_individuals_start(simulation);
+        return -1;
+    }
+
+    if (simulation_individuals_start(simulation) != 0) {
+        fprintf(
+            stderr,
+            "Error: Unable to restart individual threads after snapshot.\n");
         return -1;
     }
 
@@ -951,6 +963,8 @@ int main(int argc, char **argv)
     FILE *config_file = NULL;
 
     world_state_t world;
+
+    conscious_thread_name_set(CONSCIOUS_THREAD_MAIN);
 
     if (parse_arguments(argc, argv, &options) != 0) {
         fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
@@ -1146,23 +1160,38 @@ int main(int argc, char **argv)
             options.run_ms,
             (double)options.run_ms / GRASS_MS_PER_DAY);
 
-        if (simulation_resume_for(simulation, options.run_ms) != 0) {
-            fprintf(stderr, "Error: --run-ms overflows the world age.\n");
-            simulation_destroy(simulation);
-            world_destroy(&world);
-            return EXIT_FAILURE;
-        }
+        {
+            world_tick_t start_age = simulation_get_world_tick(simulation);
+            world_tick_t until;
 
-        while (simulation_get_world_tick(simulation) < options.run_ms) {
-            struct timespec wait = {
-                .tv_sec = 0,
-                .tv_nsec = 50000000L
-            };
+            if (options.run_ms > UINT64_MAX - start_age) {
+                fprintf(stderr, "Error: --run-ms overflows the world age.\n");
+                simulation_destroy(simulation);
+                world_destroy(&world);
+                return EXIT_FAILURE;
+            }
 
-            nanosleep(&wait, NULL);
+            until = start_age + options.run_ms;
+
+            if (simulation_resume_for(simulation, options.run_ms) != 0) {
+                fprintf(stderr, "Error: --run-ms overflows the world age.\n");
+                simulation_destroy(simulation);
+                world_destroy(&world);
+                return EXIT_FAILURE;
+            }
+
+            while (simulation_get_world_tick(simulation) < until) {
+                struct timespec wait = {
+                    .tv_sec = 0,
+                    .tv_nsec = 50000000L
+                };
+
+                nanosleep(&wait, NULL);
+            }
         }
 
         simulation_wait_until_paused(simulation);
+        simulation_individuals_reap(simulation);
         age = simulation_get_world_tick(simulation);
         grass_cycle_stats(&births, &deaths);
         grass_total_stats(&births_total, &deaths_total);
@@ -1171,6 +1200,9 @@ int main(int argc, char **argv)
             "age %" PRIu64 " ms (%.2f days)\n",
             age,
             (double)age / GRASS_MS_PER_DAY);
+        printf(
+            "individual threads live=%zu\n",
+            simulation_individuals_live_count(simulation));
         printf(
             "grass last cycle  born=%" PRIu64 "  died=%" PRIu64 "\n",
             births,

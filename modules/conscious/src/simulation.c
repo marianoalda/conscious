@@ -1,12 +1,12 @@
 #include "simulation.h"
+#include "simulation_internal.h"
 #include "world.h"
 #include "world_internal.h"
 #include "simulation_layer_difflight.h"
 #include "simulation_layer_humidity.h"
 #include "simulation_layer_grass.h"
 #include "simulation_layer_grassage.h"
-#include "simulation_species_rabbit.h"
-#include "world_species_rabbit.h"
+#include "thread_name.h"
 #include "debug.h"
 
 #include <stdbool.h>
@@ -17,31 +17,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-
-typedef enum {
-    SIMULATION_PAUSED,
-    SIMULATION_RUNNING
-} simulation_state_t;
-
-struct simulation {
-    pthread_t thread;
-
-    pthread_mutex_t mutex;
-    pthread_cond_t condition;
-
-    simulation_state_t requested_state;
-    simulation_state_t actual_state;
-
-    world_state_t *world;
-    world_tick_t world_tick;
-    bool stop_armed;
-    world_tick_t stop_tick;
-    bool step_delay_set;
-    uint64_t step_delay_us;
-
-    bool terminate_requested;
-    bool thread_started;
-};
 
 static void simulate_heightmap(
     world_layer_t *layer,
@@ -257,15 +232,9 @@ static void simulate_layer(
             simulate_grassage(world, layer, tick);
             break;
 
-        case WORLD_LAYER_INDIVIDUAL: {
-            const world_individual_payload_t *payload = layer->payload;
-
-            if (payload != NULL &&
-                world_species_rabbit_is(payload->species)) {
-                simulate_species_rabbit(world, layer, tick);
-            }
+        case WORLD_LAYER_INDIVIDUAL:
+            /* Individuals run on their own threads. */
             break;
-        }
     }
 
     world_clamp_layer(world, layer);
@@ -273,9 +242,8 @@ static void simulate_layer(
 }
 
 /*
- * A layer is due from its clock alone, except TYPE_INDIVIDUAL which
- * wakes on calendar midnights (86400000 ms), and static water which
- * never wakes even if the file carried a divisor.
+ * A layer is due from its clock alone. Static water and TYPE_INDIVIDUAL
+ * never wake here: water stays put; individuals have their own threads.
  */
 static bool layer_is_due(
     const world_layer_t *layer,
@@ -283,12 +251,9 @@ static bool layer_is_due(
 {
     world_tick_t period;
 
-    if (layer->type == WORLD_LAYER_STATICWATER) {
+    if (layer->type == WORLD_LAYER_STATICWATER ||
+        layer->type == WORLD_LAYER_INDIVIDUAL) {
         return false;
-    }
-
-    if (layer->type == WORLD_LAYER_INDIVIDUAL) {
-        return tick > 0 && (tick % 86400000ULL) == 0;
     }
 
     if (layer->clock.mode != WORLD_CLOCK_DIVISOR) {
@@ -306,8 +271,7 @@ static bool layer_is_due(
 
 /*
  * First tick at or after `tick` on which this layer is due.
- * CLK_NOEV (non-individual) and static water never return a finite tick.
- * Individuals are due at each calendar midnight.
+ * CLK_NOEV, static water, and TYPE_INDIVIDUAL never return a finite tick.
  */
 static world_tick_t layer_next_due_tick(
     const world_layer_t *layer,
@@ -315,25 +279,11 @@ static world_tick_t layer_next_due_tick(
 {
     world_tick_t period;
     world_tick_t aligned;
-    const world_tick_t day_ms = 86400000ULL;
 
-    if (layer == NULL || layer->type == WORLD_LAYER_STATICWATER) {
-        return UINT64_MAX;
-    }
-
-    if (layer->type == WORLD_LAYER_INDIVIDUAL) {
-        if ((tick % day_ms) == 0) {
-            return tick;
-        }
-
-        if (tick > UINT64_MAX - day_ms) {
-            return UINT64_MAX;
-        }
-
-        return (tick / day_ms + 1) * day_ms;
-    }
-
-    if (layer->clock.mode != WORLD_CLOCK_DIVISOR ||
+    if (layer == NULL ||
+        layer->type == WORLD_LAYER_STATICWATER ||
+        layer->type == WORLD_LAYER_INDIVIDUAL ||
+        layer->clock.mode != WORLD_CLOCK_DIVISOR ||
         layer->clock.exponent >= 64) {
         return UINT64_MAX;
     }
@@ -586,6 +536,8 @@ static void *simulation_run(void *arg)
 {
     simulation_t *simulation = arg;
 
+    conscious_thread_name_set(CONSCIOUS_THREAD_GRID);
+
     pthread_mutex_lock(&simulation->mutex);
 
     for (;;) {
@@ -613,14 +565,12 @@ static void *simulation_run(void *arg)
         pthread_mutex_unlock(&simulation->mutex);
 
         simulate_step(simulation);
+        simulation_individuals_reap(simulation);
 
-        /* 
-         * Here, either:
-         *   simulate the beings or
-         *   wait until they notify their simulation is finished or even better
-         *   include their simulation inside simulate_step()
-         * The definitive implementation depends on the architecture
-         * of the beings.
+        /*
+         * Individuals advance on their own threads
+         * (simulation_individuals.c), unsynchronised for now.
+         * Reap joins disappearances and frees their records.
          */
 
         pthread_mutex_lock(&simulation->mutex);
@@ -718,6 +668,16 @@ int simulation_start(simulation_t *simulation)
 
     simulation->thread_started = true;
 
+    if (simulation_individuals_start(simulation) != 0) {
+        pthread_mutex_lock(&simulation->mutex);
+        simulation->terminate_requested = true;
+        pthread_cond_broadcast(&simulation->condition);
+        pthread_mutex_unlock(&simulation->mutex);
+        pthread_join(simulation->thread, NULL);
+        simulation->thread_started = false;
+        return -1;
+    }
+
     return 0;
 }
 
@@ -814,6 +774,8 @@ void simulation_destroy(simulation_t *simulation)
     if (simulation == NULL) {
         return;
     }
+
+    simulation_individuals_stop(simulation);
 
     if (simulation->thread_started) {
         pthread_mutex_lock(&simulation->mutex);

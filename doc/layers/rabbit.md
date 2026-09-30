@@ -1,17 +1,12 @@
-# Rabbit (individual species)
+# Rabbit
 
-Static species `SPECIES_RABBIT_FUNCTIONAL` on a [TYPE_INDIVIDUAL](../world-format/v4.md)
-layer: one pose record per being (id, x/y/z mm, orientation milliradians).
-Load and save live in `world_species_rabbit.*`. Further record-layout
-changes for this species stay in that serializer/deserializer, not in a
-new world-format version.
+Species notes for the dense-layer status table. Full being docs:
+[doc/beings](../beings/README.md) (format, FUNCTIONAL rabbit, DEEP future).
+Threads: [multithreading](../architecture/multithreading.md).
 
-## Simulation
-
-| Status      | Meaning |
-| ----------- | ------- |
-| Provisional | Calendar-day step of 1 m along orientation, only to check that a rabbit moves through the world. |
-
-Not the real hunger/thirst/flee behaviour for 0.2. The engine wakes
-individual layers on calendar midnights (`86400000` ms), independent of
-`CLK_NOEV` on the layer block.
+| Item | |
+| ---- | - |
+| Species string | `SPECIES_RABBIT_FUNCTIONAL` |
+| Thread tag | `RAB` |
+| Simulation | Provisional (daily 1 m step, death at 3 calendar days) |
+| Code | `world_species_rabbit.*`, `simulation_species_rabbit.*` |

@@ -43,6 +43,7 @@ v4    TYPE_INDIVIDUAL layers (static species, one record per being)
 After version 4, changes to an individual species' on-disk record are
 owned by that species' serialize/deserialize code, not by a new world
 format version, unless the shared individual-layer frame must change.
+See also [doc/beings](../beings/README.md#beings-format).
 
 Version 2 removes version 1's `EV_N` field. The clock is a new field, not a new reading of `EV_N`.
 

@@ -2,7 +2,12 @@
 
 The main process, operator interface, world load/save, and time engine.
 
-The description of the project as it stands is the [root README](../../README.md). Layer meanings are in [doc/layers](../../doc/layers/README.md). World file bytes are in [doc/world-format](../../doc/world-format/README.md). Version aims are in [ROADMAP.md](../../ROADMAP.md).
+The description of the project as it stands is the [root README](../../README.md).
+Layer meanings are in [doc/layers](../../doc/layers/README.md). Beings are in
+[doc/beings](../../doc/beings/README.md). Threads are in
+[doc/architecture/multithreading.md](../../doc/architecture/multithreading.md).
+World file bytes are in [doc/world-format](../../doc/world-format/README.md).
+Version aims are in [ROADMAP.md](../../ROADMAP.md).
 
 ## Build and run
 
@@ -20,14 +25,16 @@ Useful options: `-h`, `-v`, `-d`, `-c FILE`, `-n NAME`, `-w FILE`, `-r MS`. `--r
 ## Layout
 
 ```text
-src/main.c                 process, operator UI, configuration
-src/simulation.c           due layers, publish, simulation thread
-src/simulation_layer_*.c   daylight, humidity, fertility, grass, grass age
-src/simulation_species_*.c provisional / species behaviour (e.g. rabbit)
-src/world*.c               load, save, format versions 0..4
-src/world_species_*.c      individual-species serialize/deserialize
-config/                    development and shipped run configs
-tests/                     standalone checks for grass and humidity
+src/main.c                      process, operator UI ("cons main")
+src/simulation.c                dense-layer thread ("cons grid")
+src/simulation_individuals.c    one thread per being ("cons <TAG> <id>"); disappear API
+src/simulation_layer_*.c        daylight, humidity, fertility, grass, grass age
+src/simulation_species_*.c      provisional / species behaviour (e.g. rabbit)
+src/thread_name.c               pthread name helper (15-char Linux limit)
+src/world*.c                    load, save, format versions 0..4
+src/world_species_*.c           individual-species serialize/deserialize
+config/                         development and shipped run configs
+tests/                          standalone checks for grass and humidity
 ```
 
 Relative `world_file` paths are resolved from the executable directory (`/proc/self/exe`). Absolute paths are unchanged.

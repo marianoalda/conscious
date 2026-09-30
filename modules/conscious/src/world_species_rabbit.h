@@ -14,6 +14,9 @@
 #define WORLD_SPECIES_RABBIT_FUNCTIONAL "SPECIES_RABBIT_FUNCTIONAL"
 #define WORLD_SPECIES_VERSION_RABBIT_FUNCTIONAL_V1 1u
 
+/* Short tag for individual thread names: "cons RAB <id>". */
+#define WORLD_SPECIES_RABBIT_THREAD_TAG "RAB"
+
 /* Pose-only record size for FUNCTIONAL species_version 1. */
 #define WORLD_SPECIES_RABBIT_FUNCTIONAL_V1_RECORD_BYTES 24
 

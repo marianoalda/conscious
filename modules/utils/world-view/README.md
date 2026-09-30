@@ -74,7 +74,7 @@ Draw order:
 3. **Static water** — cyan at terrain elevation plus depth (always drawn).
 4. **Individuals** — black camera-facing disks of 10 cm world radius at
    each being's `(x, y, z)` (always circular on screen; perspective
-   still scales size with distance).
+   still scales size with distance). See [doc/beings](../../../doc/beings/README.md).
 5. **Underside sheet** (Tab) — one of humidity, fertility, or grass age.
    Each is hung from the heightmap's stored zero (`min_height`) and grows
    downward. Visible from below the terrain.

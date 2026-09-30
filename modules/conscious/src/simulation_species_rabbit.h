@@ -3,17 +3,33 @@
 
 #include "world.h"
 
+#include <stdbool.h>
+
+#define RABBIT_MS_PER_DAY 86400000ULL
+#define RABBIT_STEP_MM 1000
+/* Provisional lifespan: die after this many calendar days of life. */
+#define RABBIT_LIFESPAN_DAYS 3u
+
+typedef enum {
+    SIM_RABBIT_OK = 0,
+    SIM_RABBIT_DIED
+} sim_rabbit_result_t;
+
 /*
- * One wake of a SPECIES_RABBIT_FUNCTIONAL individual layer.
+ * Provisional per-individual step for SPECIES_RABBIT_FUNCTIONAL.
+ * Moves 1 m per calendar day along orientation, then dies when
+ * calendar days since birth_tick reach RABBIT_LIFESPAN_DAYS.
+ * Runs on the individual's own thread only to verify motion and
+ * death in the world — not real behaviour.
  *
- * Provisional: each calendar day (86400000 ms) since
- * last_simulation_tick moves every rabbit 1 m along its orientation
- * (0 = east, CCW positive). Only to verify that rabbits move in the
- * world; replace with real behaviour later.
+ * Must not read or write dense simulated layers; may use static world
+ * layout (extents, modularity) for wrapping.
  */
-void simulate_species_rabbit(
-    world_state_t *world,
-    world_layer_t *layer,
+sim_rabbit_result_t simulate_species_rabbit_one(
+    const world_state_t *world,
+    world_individual_t *individual,
+    world_tick_t birth_tick,
+    world_tick_t *last_tick,
     world_tick_t tick);
 
 #endif
